@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
+import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { QueueWidget } from '../components/QueueWidget';
 import { Queue2DVisualization } from '../components/Queue2DVisualization';
