@@ -4,14 +4,15 @@ import {
   Clock, 
   QrCode, 
   Search, 
-  Filter,
   CheckCircle,
-  XCircle,
-  Pause,
-  Play,
   LogOut,
   Eye,
-  CreditCard
+  CreditCard,
+  Settings,
+  BarChart3,
+  UserSearch,
+  TrendingUp,
+  DollarSign
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -19,18 +20,25 @@ import { Select } from '../components/ui/Select';
 import { Card, CardHeader, CardContent } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { QRScanner } from '../components/QRScanner';
+import { PatientLookup } from '../components/PatientLookup';
+import { SettingsPanel } from '../components/SettingsPanel';
 import { useAuth } from '../hooks/useAuth';
 import { useQueue } from '../hooks/useQueue';
+import { useAnalytics } from '../hooks/useAnalytics';
+import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import { supabase } from '../lib/supabase';
-import { Visit, Patient } from '../types';
+import { Visit, Patient, PaymentTransaction } from '../types';
 import { formatTime, formatRelativeTime, getStatusColor, getPaymentStatusColor } from '../lib/utils';
 import { QRPayload, parseQRCode } from '../lib/qr';
 
 export const AdminPage: React.FC = () => {
   const { user, signOut, loading: authLoading } = useAuth();
   const { visits, queueStatus, loading: queueLoading, refetch } = useQueue();
+  const { analytics, loading: analyticsLoading } = useAnalytics();
   
   const [showScanner, setShowScanner] = useState(false);
+  const [showPatientLookup, setShowPatientLookup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showVisitModal, setShowVisitModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,6 +46,11 @@ export const AdminPage: React.FC = () => {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loginLoading, setLoginLoading] = useState(false);
+
+  // Real-time updates
+  useRealTimeUpdates(() => {
+    refetch();
+  });
 
   // If not authenticated, show login form
   if (!authLoading && !user) {
@@ -147,6 +160,41 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const processPayment = async (visitId: string, amount: number, method: string = 'cash') => {
+    try {
+      // Create payment transaction
+      const { data: transaction, error: transactionError } = await supabase
+        .from('payment_transactions')
+        .insert({
+          visit_id: visitId,
+          patient_id: visits.find(v => v.id === visitId)?.patient_id,
+          amount: amount,
+          payment_method: method,
+          status: 'completed',
+          processed_by: user?.id,
+          processed_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (transactionError) throw transactionError;
+
+      // Update visit payment status
+      const { error: visitError } = await supabase
+        .from('visits')
+        .update({ payment_status: 'paid' })
+        .eq('id', visitId);
+
+      if (visitError) throw visitError;
+
+      refetch();
+      alert('Payment processed successfully!');
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      alert('Failed to process payment');
+    }
+  };
+
   const updateVisitStatus = async (visitId: string, status: string) => {
     try {
       const updates: any = { status };
@@ -228,12 +276,28 @@ export const AdminPage: React.FC = () => {
             <div className="flex items-center space-x-4">
               <Button 
                 onClick={() => setShowScanner(true)}
-                className="flex items-center"
+                size="sm"
               >
                 <QrCode className="mr-2 h-4 w-4" />
                 Scan QR
               </Button>
-              <Button variant="outline" onClick={() => signOut()}>
+              <Button 
+                onClick={() => setShowPatientLookup(true)}
+                variant="outline"
+                size="sm"
+              >
+                <UserSearch className="mr-2 h-4 w-4" />
+                Patient Lookup
+              </Button>
+              <Button 
+                onClick={() => setShowSettings(true)}
+                variant="outline"
+                size="sm"
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </Button>
+              <Button variant="outline" onClick={() => signOut()} size="sm">
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
               </Button>
@@ -244,7 +308,7 @@ export const AdminPage: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center">
@@ -292,17 +356,102 @@ export const AdminPage: React.FC = () => {
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <Clock className="h-6 w-6 text-purple-600" />
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Users className="h-6 w-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Today</p>
+                  <p className="text-sm font-medium text-gray-600">Total Visits</p>
                   <p className="text-2xl font-bold text-gray-900">{visits.length}</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Today Revenue</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    ₹{analytics?.today.revenue.toFixed(0) || 0}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <TrendingUp className="h-6 w-6 text-purple-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Avg Wait</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {analytics?.today.average_wait_time || 15}m
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Analytics Charts */}
+        {analytics && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold flex items-center">
+                  <BarChart3 className="h-5 w-5 mr-2" />
+                  Weekly Visits Trend
+                </h3>
+              </CardHeader>
+              <CardContent>
+                <div className="h-32 flex items-end space-x-2">
+                  {analytics.weekly.visits_trend.map((count, index) => (
+                    <div key={index} className="flex-1 flex flex-col items-center">
+                      <div
+                        className="w-full bg-blue-500 rounded-t"
+                        style={{ 
+                          height: `${Math.max(4, (count / Math.max(...analytics.weekly.visits_trend)) * 100)}px` 
+                        }}
+                      ></div>
+                      <span className="text-xs text-gray-600 mt-1">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold flex items-center">
+                  <DollarSign className="h-5 w-5 mr-2" />
+                  Weekly Revenue Trend
+                </h3>
+              </CardHeader>
+              <CardContent>
+                <div className="h-32 flex items-end space-x-2">
+                  {analytics.weekly.revenue_trend.map((amount, index) => (
+                    <div key={index} className="flex-1 flex flex-col items-center">
+                      <div
+                        className="w-full bg-green-500 rounded-t"
+                        style={{ 
+                          height: `${Math.max(4, (amount / Math.max(...analytics.weekly.revenue_trend)) * 100)}px` 
+                        }}
+                      ></div>
+                      <span className="text-xs text-gray-600 mt-1">₹{amount.toFixed(0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Filters */}
         <Card className="mb-8">
@@ -442,10 +591,16 @@ export const AdminPage: React.FC = () => {
                           {visit.payment_status === 'pay_at_clinic' && (
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => updatePaymentStatus(visit.id, 'paid')}
+                              variant="secondary"
+                              onClick={() => {
+                                const amount = prompt('Enter payment amount:', '500');
+                                if (amount) {
+                                  processPayment(visit.id, parseFloat(amount));
+                                }
+                              }}
                             >
                               <CreditCard className="h-4 w-4" />
+                              Mark Paid
                             </Button>
                           )}
                         </div>
@@ -471,6 +626,18 @@ export const AdminPage: React.FC = () => {
         isOpen={showScanner}
         onClose={() => setShowScanner(false)}
         onScan={handleQRScan}
+      />
+
+      {/* Patient Lookup Modal */}
+      <PatientLookup
+        isOpen={showPatientLookup}
+        onClose={() => setShowPatientLookup(false)}
+      />
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
       />
 
       {/* Visit Details Modal */}
@@ -584,6 +751,23 @@ export const AdminPage: React.FC = () => {
                   className="flex-1"
                 >
                   Complete
+                </Button>
+              )}
+              
+              {selectedVisit.payment_status === 'pay_at_clinic' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const amount = prompt('Enter payment amount:', '500');
+                    if (amount) {
+                      processPayment(selectedVisit.id, parseFloat(amount));
+                      setShowVisitModal(false);
+                    }
+                  }}
+                  className="flex-1"
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Process Payment
                 </Button>
               )}
             </div>

@@ -1,22 +1,89 @@
 import React, { useState } from 'react';
-import { Heart, Clock, Users, Calendar, QrCode, CheckCircle } from 'lucide-react';
+import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { QueueWidget } from '../components/QueueWidget';
+import { Queue3DVisualization } from '../components/Queue3DVisualization';
 import { BookingForm } from '../components/BookingForm';
-import { BookingRequest, BookingResponse } from '../types';
+import { PatientLookup } from '../components/PatientLookup';
+import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
 import { supabase } from '../lib/supabase';
 import { generateUID } from '../lib/utils';
 import { generateQRCode, QRPayload, downloadQRCode } from '../lib/qr';
+import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 
 export const HomePage: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [showPatientLookup, setShowPatientLookup] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
+  const [departmentStats, setDepartmentStats] = useState<DepartmentStats[]>([]);
 
+  // Real-time updates
+  useRealTimeUpdates(() => {
+    fetchDepartmentStats();
+  });
+
+  const fetchDepartmentStats = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { data: departments } = await supabase
+        .from('departments')
+        .select('*')
+        .eq('is_active', true);
+
+      const { data: visits } = await supabase
+        .from('visits')
+        .select('department, status')
+        .eq('visit_date', today);
+
+      const { data: doctors } = await supabase
+        .from('doctors')
+        .select('specialization')
+        .eq('status', 'active');
+
+      const stats: DepartmentStats[] = (departments || []).map(dept => {
+        const deptVisits = visits?.filter(v => v.department === dept.name) || [];
+        const waitingVisits = deptVisits.filter(v => ['waiting', 'checked_in'].includes(v.status));
+        const completedVisits = deptVisits.filter(v => v.status === 'completed');
+        const inServiceVisits = deptVisits.filter(v => v.status === 'in_service');
+        
+        let nowServing = 0;
+        if (inServiceVisits.length > 0) {
+          const inServiceSTNs = visits?.filter(v => v.department === dept.name && v.status === 'in_service').map((v: any) => v.stn) || [];
+          nowServing = Math.min(...inServiceSTNs);
+        } else if (completedVisits.length > 0) {
+          const completedSTNs = visits?.filter(v => v.department === dept.name && v.status === 'completed').map((v: any) => v.stn) || [];
+          nowServing = Math.max(...completedSTNs);
+        }
+
+        const doctorCount = doctors?.filter(d => d.specialization === dept.name).length || 0;
+
+        return {
+          department: dept.name,
+          display_name: dept.display_name,
+          color_code: dept.color_code,
+          now_serving: nowServing,
+          total_waiting: waitingVisits.length,
+          total_completed: completedVisits.length,
+          average_wait_time: dept.average_consultation_time,
+          doctor_count: doctorCount
+        };
+      });
+
+      setDepartmentStats(stats);
+    } catch (error) {
+      console.error('Error fetching department stats:', error);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchDepartmentStats();
+  }, []);
   const handleBookToken = async (bookingData: BookingRequest) => {
     setBookingLoading(true);
     try {
@@ -153,8 +220,9 @@ export const HomePage: React.FC = () => {
               <Heart className="h-8 w-8 text-blue-600 mr-3" />
               <h1 className="text-2xl font-bold text-gray-900">MediQueue</h1>
             </div>
-            <Button variant="outline" onClick={() => window.location.href = '/admin'}>
-              Admin Login
+            <Button variant="outline" onClick={() => setShowPatientLookup(true)}>
+              <Search className="h-4 w-4 mr-2" />
+              Track by UID
             </Button>
           </div>
         </div>
@@ -183,6 +251,20 @@ export const HomePage: React.FC = () => {
 
         {/* Live Queue Widget */}
         <QueueWidget />
+
+        {/* 3D Queue Visualization */}
+        <Card className="mb-12">
+          <CardHeader>
+            <h3 className="text-2xl font-bold text-center text-gray-900">Live Queue Monitor</h3>
+            <p className="text-center text-gray-600">Real-time 3D visualization of all department queues</p>
+          </CardHeader>
+          <CardContent>
+            <Queue3DVisualization 
+              departmentStats={departmentStats}
+              className="h-80"
+            />
+          </CardContent>
+        </Card>
 
         {/* Features */}
         <div className="grid md:grid-cols-3 gap-8 mb-12">
@@ -381,6 +463,12 @@ export const HomePage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Patient Lookup Modal */}
+      <PatientLookup
+        isOpen={showPatientLookup}
+        onClose={() => setShowPatientLookup(false)}
+      />
     </div>
   );
 };

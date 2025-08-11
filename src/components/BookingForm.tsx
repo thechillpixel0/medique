@@ -2,34 +2,82 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Select } from './ui/Select';
-import { BookingRequest } from '../types';
+import { BookingRequest, Department, Doctor } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface BookingFormProps {
   onSubmit: (data: BookingRequest) => Promise<void>;
   loading: boolean;
 }
 
-const departments = [
-  { value: '', label: 'Select Department' },
-  { value: 'general', label: 'General Medicine' },
-  { value: 'cardiology', label: 'Cardiology' },
-  { value: 'dermatology', label: 'Dermatology' },
-  { value: 'orthopedics', label: 'Orthopedics' },
-  { value: 'pediatrics', label: 'Pediatrics' },
-  { value: 'ophthalmology', label: 'Ophthalmology' },
-];
-
 export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) => {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [availableDoctors, setAvailableDoctors] = useState<Doctor[]>([]);
+
   const [formData, setFormData] = useState<BookingRequest>({
     name: '',
     age: 0,
     phone: '',
+    email: '',
+    address: '',
+    emergency_contact: '',
+    blood_group: '',
+    allergies: [],
+    medical_conditions: [],
     department: '',
+    doctor_id: '',
     payment_mode: 'pay_at_clinic',
     notes: '',
   });
 
   const [errors, setErrors] = useState<Partial<BookingRequest>>({});
+
+  React.useEffect(() => {
+    fetchDepartments();
+    fetchDoctors();
+  }, []);
+
+  React.useEffect(() => {
+    if (formData.department) {
+      const deptDoctors = doctors.filter(d => 
+        d.specialization === formData.department && d.status === 'active'
+      );
+      setAvailableDoctors(deptDoctors);
+    } else {
+      setAvailableDoctors([]);
+    }
+  }, [formData.department, doctors]);
+
+  const fetchDepartments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('departments')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_name');
+
+      if (error) throw error;
+      setDepartments(data || []);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
+  };
+
+  const fetchDoctors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('doctors')
+        .select('*')
+        .eq('status', 'active')
+        .order('name');
+
+      if (error) throw error;
+      setDoctors(data || []);
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+    }
+  };
 
   const validateForm = (): boolean => {
     const newErrors: Partial<BookingRequest> = {};
@@ -57,6 +105,22 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
       setErrors(prev => ({ ...prev, [field]: undefined }));
     }
   };
+
+  const departmentOptions = [
+    { value: '', label: 'Select Department' },
+    ...departments.map(dept => ({
+      value: dept.name,
+      label: `${dept.display_name} - ₹${dept.consultation_fee}`
+    }))
+  ];
+
+  const doctorOptions = [
+    { value: '', label: 'Any Available Doctor' },
+    ...availableDoctors.map(doctor => ({
+      value: doctor.id,
+      label: `${doctor.name} - ₹${doctor.consultation_fee}`
+    }))
+  ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -98,9 +162,62 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
           label="Department"
           value={formData.department}
           onChange={(e) => handleChange('department', e.target.value)}
-          options={departments}
+          options={departmentOptions}
           error={errors.department}
           required
+        />
+      </div>
+
+      {availableDoctors.length > 0 && (
+        <Select
+          label="Preferred Doctor (Optional)"
+          value={formData.doctor_id || ''}
+          onChange={(e) => handleChange('doctor_id', e.target.value)}
+          options={doctorOptions}
+        />
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Input
+          label="Email (Optional)"
+          type="email"
+          value={formData.email || ''}
+          onChange={(e) => handleChange('email', e.target.value)}
+          placeholder="Enter your email"
+        />
+
+        <Input
+          label="Emergency Contact (Optional)"
+          type="tel"
+          value={formData.emergency_contact || ''}
+          onChange={(e) => handleChange('emergency_contact', e.target.value)}
+          placeholder="Emergency contact number"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Select
+          label="Blood Group (Optional)"
+          value={formData.blood_group || ''}
+          onChange={(e) => handleChange('blood_group', e.target.value)}
+          options={[
+            { value: '', label: 'Select Blood Group' },
+            { value: 'A+', label: 'A+' },
+            { value: 'A-', label: 'A-' },
+            { value: 'B+', label: 'B+' },
+            { value: 'B-', label: 'B-' },
+            { value: 'AB+', label: 'AB+' },
+            { value: 'AB-', label: 'AB-' },
+            { value: 'O+', label: 'O+' },
+            { value: 'O-', label: 'O-' },
+          ]}
+        />
+
+        <Input
+          label="Address (Optional)"
+          value={formData.address || ''}
+          onChange={(e) => handleChange('address', e.target.value)}
+          placeholder="Your address"
         />
       </div>
 
@@ -151,7 +268,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
 
       <div>
         <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-          Additional Notes (Optional)
+          Medical History / Additional Notes (Optional)
         </label>
         <textarea
           id="notes"
@@ -159,7 +276,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
           value={formData.notes}
           onChange={(e) => handleChange('notes', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Any additional information or special requirements..."
+          placeholder="Any medical history, allergies, current medications, or special requirements..."
         />
       </div>
 
