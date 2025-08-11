@@ -20,6 +20,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
   const [medicalHistory, setMedicalHistory] = useState<MedicalHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'visits' | 'history'>('visits');
+  const [error, setError] = useState<string>('');
 
   const searchPatient = async () => {
     if (!searchQuery.trim()) return;

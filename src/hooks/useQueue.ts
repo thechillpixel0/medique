@@ -18,7 +18,8 @@ export const useQueue = (department?: string) => {
         .from('visits')
         .select(`
           *,
-          patient:patients(*)
+          patient:patients(*),
+          doctor:doctors(*)
         `)
         .eq('visit_date', today)
         .order('stn', { ascending: true });

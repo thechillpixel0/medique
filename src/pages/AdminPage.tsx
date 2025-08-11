@@ -59,6 +59,9 @@ export const AdminPage: React.FC = () => {
         <Card className="w-full max-w-md">
           <CardHeader>
             <h1 className="text-2xl font-bold text-center text-gray-900">Admin Login</h1>
+            <p className="text-center text-gray-600 text-sm mt-2">
+              Use your Supabase admin credentials to access the dashboard
+            </p>
           </CardHeader>
           <CardContent>
             <form
@@ -66,10 +69,13 @@ export const AdminPage: React.FC = () => {
                 e.preventDefault();
                 setLoginLoading(true);
                 try {
-                  const { error } = await supabase.auth.signInWithPassword(loginForm);
+                  const { data, error } = await supabase.auth.signInWithPassword({
+                    email: loginForm.email,
+                    password: loginForm.password,
+                  });
                   if (error) throw error;
                 } catch (error: any) {
-                  alert(error.message);
+                  alert(error.message || 'Login failed. Please check your credentials.');
                 } finally {
                   setLoginLoading(false);
                 }
@@ -118,7 +124,8 @@ export const AdminPage: React.FC = () => {
         .from('visits')
         .select(`
           *,
-          patient:patients(*)
+          patient:patients(*),
+          doctor:doctors(*)
         `)
         .eq('qr_payload', JSON.stringify(payload))
         .single();

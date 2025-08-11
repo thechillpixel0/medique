@@ -54,10 +54,10 @@ export const HomePage: React.FC = () => {
         
         let nowServing = 0;
         if (inServiceVisits.length > 0) {
-          const inServiceSTNs = visits?.filter(v => v.department === dept.name && v.status === 'in_service').map((v: any) => v.stn) || [];
+          const inServiceSTNs = visits?.filter((v: any) => v.department === dept.name && v.status === 'in_service').map((v: any) => v.stn) || [];
           nowServing = Math.min(...inServiceSTNs);
         } else if (completedVisits.length > 0) {
-          const completedSTNs = visits?.filter(v => v.department === dept.name && v.status === 'completed').map((v: any) => v.stn) || [];
+          const completedSTNs = visits?.filter((v: any) => v.department === dept.name && v.status === 'completed').map((v: any) => v.stn) || [];
           nowServing = Math.max(...completedSTNs);
         }
 
@@ -103,6 +103,15 @@ export const HomePage: React.FC = () => {
       // Create new patient if doesn't exist
       if (!patient) {
         const uid = generateUID();
+        
+        // Process allergies and medical conditions
+        const allergies = bookingData.allergies ? 
+          bookingData.allergies.split(',').map(item => item.trim()).filter(Boolean) : 
+          [];
+        const medicalConditions = bookingData.medical_conditions ? 
+          bookingData.medical_conditions.split(',').map(item => item.trim()).filter(Boolean) : 
+          [];
+        
         const { data: newPatient, error: createPatientError } = await supabase
           .from('patients')
           .insert({
@@ -110,6 +119,13 @@ export const HomePage: React.FC = () => {
             name: bookingData.name,
             age: bookingData.age,
             phone: bookingData.phone,
+            email: bookingData.email,
+            address: bookingData.address,
+            doctor_id: bookingData.doctor_id || null,
+            emergency_contact: bookingData.emergency_contact,
+            blood_group: bookingData.blood_group,
+            allergies: allergies.length > 0 ? allergies : null,
+            medical_conditions: medicalConditions.length > 0 ? medicalConditions : null,
           })
           .select()
           .single();

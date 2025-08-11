@@ -147,8 +147,8 @@ export interface BookingRequest {
   address?: string;
   emergency_contact?: string;
   blood_group?: string;
-  allergies?: string[];
-  medical_conditions?: string[];
+  allergies?: string;
+  medical_conditions?: string;
   department: string;
   doctor_id?: string;
   payment_mode: 'pay_now' | 'pay_at_clinic';

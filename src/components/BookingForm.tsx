@@ -23,8 +23,8 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
     address: '',
     emergency_contact: '',
     blood_group: '',
-    allergies: [],
-    medical_conditions: [],
+    allergies: '',
+    medical_conditions: '',
     department: '',
     doctor_id: '',
     payment_mode: 'pay_at_clinic',
@@ -267,16 +267,40 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
       </div>
 
       <div>
+        <label htmlFor="allergies" className="block text-sm font-medium text-gray-700 mb-1">
+          Allergies (Optional)
+        </label>
+        <Input
+          id="allergies"
+          value={formData.allergies || ''}
+          onChange={(e) => handleChange('allergies', e.target.value)}
+          placeholder="e.g., Penicillin, Peanuts (comma separated)"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="medical_conditions" className="block text-sm font-medium text-gray-700 mb-1">
+          Medical Conditions (Optional)
+        </label>
+        <Input
+          id="medical_conditions"
+          value={formData.medical_conditions || ''}
+          onChange={(e) => handleChange('medical_conditions', e.target.value)}
+          placeholder="e.g., Diabetes, Hypertension (comma separated)"
+        />
+      </div>
+
+      <div>
         <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-          Medical History / Additional Notes (Optional)
+          Additional Notes (Optional)
         </label>
         <textarea
           id="notes"
-          rows={3}
-          value={formData.notes}
+          rows={2}
+          value={formData.notes || ''}
           onChange={(e) => handleChange('notes', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Any medical history, allergies, current medications, or special requirements..."
+          placeholder="Any additional information or special requirements..."
         />
       </div>
 
