@@ -1,0 +1,386 @@
+import React, { useState } from 'react';
+import { Heart, Clock, Users, Calendar, QrCode, CheckCircle } from 'lucide-react';
+import { Button } from '../components/ui/Button';
+import { Card, CardContent, CardHeader } from '../components/ui/Card';
+import { Modal } from '../components/ui/Modal';
+import { QueueWidget } from '../components/QueueWidget';
+import { BookingForm } from '../components/BookingForm';
+import { BookingRequest, BookingResponse } from '../types';
+import { supabase } from '../lib/supabase';
+import { generateUID } from '../lib/utils';
+import { generateQRCode, QRPayload, downloadQRCode } from '../lib/qr';
+
+export const HomePage: React.FC = () => {
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
+  const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
+
+  const handleBookToken = async (bookingData: BookingRequest) => {
+    setBookingLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Check if patient exists by phone
+      let { data: existingPatients, error: patientError } = await supabase
+        .from('patients')
+        .select('*')
+        .eq('phone', bookingData.phone)
+        .limit(1);
+
+      if (patientError) throw patientError;
+
+      let patient = existingPatients?.[0];
+      
+      // Create new patient if doesn't exist
+      if (!patient) {
+        const uid = generateUID();
+        const { data: newPatient, error: createPatientError } = await supabase
+          .from('patients')
+          .insert({
+            uid,
+            name: bookingData.name,
+            age: bookingData.age,
+            phone: bookingData.phone,
+          })
+          .select()
+          .single();
+
+        if (createPatientError) throw createPatientError;
+        patient = newPatient;
+      }
+
+      // Get next STN for today and department
+      const { data: existingVisits } = await supabase
+        .from('visits')
+        .select('stn')
+        .eq('visit_date', today)
+        .eq('department', bookingData.department)
+        .order('stn', { ascending: false })
+        .limit(1);
+
+      const nextSTN = (existingVisits?.[0]?.stn || 0) + 1;
+
+      // Create QR payload
+      const qrPayload: QRPayload = {
+        clinic: 'CLN1',
+        uid: patient.uid,
+        stn: nextSTN,
+        visit_date: today,
+        issued_at: Date.now(),
+      };
+
+      const qrCodeData = await generateQRCode(qrPayload);
+      setQrCodeDataURL(qrCodeData);
+
+      // Create visit record
+      const { data: visit, error: visitError } = await supabase
+        .from('visits')
+        .insert({
+          patient_id: patient.id,
+          clinic_id: 'CLN1',
+          stn: nextSTN,
+          department: bookingData.department,
+          visit_date: today,
+          status: 'waiting',
+          payment_status: bookingData.payment_mode === 'pay_now' ? 'pending' : 'pay_at_clinic',
+          qr_payload: JSON.stringify(qrPayload),
+        })
+        .select()
+        .single();
+
+      if (visitError) throw visitError;
+
+      // Get current queue status
+      const { data: queueData } = await supabase
+        .from('visits')
+        .select('stn, status')
+        .eq('visit_date', today)
+        .eq('department', bookingData.department);
+
+      const inServiceVisits = queueData?.filter(v => v.status === 'in_service') || [];
+      const completedVisits = queueData?.filter(v => v.status === 'completed') || [];
+      
+      let nowServing = 0;
+      if (inServiceVisits.length > 0) {
+        nowServing = Math.min(...inServiceVisits.map(v => v.stn));
+      } else if (completedVisits.length > 0) {
+        nowServing = Math.max(...completedVisits.map(v => v.stn));
+      }
+
+      const position = Math.max(0, nextSTN - nowServing);
+      const estimatedWaitMinutes = position * 10; // Assume 10 minutes per patient
+
+      const result: BookingResponse = {
+        uid: patient.uid,
+        visit_id: visit.id,
+        stn: nextSTN,
+        department: bookingData.department,
+        visit_date: today,
+        payment_status: visit.payment_status,
+        qr_payload: visit.qr_payload,
+        estimated_wait_minutes: estimatedWaitMinutes,
+        now_serving: nowServing,
+        position,
+      };
+
+      setBookingResult(result);
+      setShowBookingModal(false);
+      setShowConfirmationModal(true);
+
+    } catch (error) {
+      console.error('Booking error:', error);
+      alert('Failed to book token. Please try again.');
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const handleDownloadQR = () => {
+    if (qrCodeDataURL && bookingResult) {
+      downloadQRCode(qrCodeDataURL, `clinic-token-${bookingResult.stn}.png`);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center">
+              <Heart className="h-8 w-8 text-blue-600 mr-3" />
+              <h1 className="text-2xl font-bold text-gray-900">MediQueue</h1>
+            </div>
+            <Button variant="outline" onClick={() => window.location.href = '/admin'}>
+              Admin Login
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero Section */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center mb-12">
+          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            Skip the Wait,
+            <span className="text-blue-600"> Book Your Token</span>
+          </h2>
+          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+            Get your appointment token instantly, track the queue in real-time, and arrive exactly when it's your turn.
+          </p>
+          
+          <Button
+            onClick={() => setShowBookingModal(true)}
+            size="lg"
+            className="mb-8 px-8 py-4 text-lg"
+          >
+            <Calendar className="mr-2 h-6 w-6" />
+            Book Your Token Now
+          </Button>
+        </div>
+
+        {/* Live Queue Widget */}
+        <QueueWidget />
+
+        {/* Features */}
+        <div className="grid md:grid-cols-3 gap-8 mb-12">
+          <Card className="text-center">
+            <CardContent className="pt-6">
+              <Clock className="h-12 w-12 text-blue-600 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Real-Time Updates</h3>
+              <p className="text-gray-600">
+                Get live updates on queue status and your estimated wait time.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="text-center">
+            <CardContent className="pt-6">
+              <QrCode className="h-12 w-12 text-green-600 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">QR Code Check-in</h3>
+              <p className="text-gray-600">
+                Quick and contactless check-in with your personal QR code.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="text-center">
+            <CardContent className="pt-6">
+              <Users className="h-12 w-12 text-purple-600 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Multiple Departments</h3>
+              <p className="text-gray-600">
+                Book tokens for different departments with specialized queues.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* How it Works */}
+        <Card className="mb-12">
+          <CardHeader>
+            <h3 className="text-2xl font-bold text-center text-gray-900">How It Works</h3>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-4 gap-6 text-center">
+              <div className="space-y-4">
+                <div className="bg-blue-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+                  <span className="text-2xl font-bold text-blue-600">1</span>
+                </div>
+                <h4 className="font-semibold text-gray-900">Book Online</h4>
+                <p className="text-sm text-gray-600">Fill out the simple form with your details and preferred department.</p>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-green-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+                  <span className="text-2xl font-bold text-green-600">2</span>
+                </div>
+                <h4 className="font-semibold text-gray-900">Get QR Code</h4>
+                <p className="text-sm text-gray-600">Receive your unique QR code and token number instantly.</p>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-purple-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+                  <span className="text-2xl font-bold text-purple-600">3</span>
+                </div>
+                <h4 className="font-semibold text-gray-900">Track Queue</h4>
+                <p className="text-sm text-gray-600">Monitor your position and estimated wait time in real-time.</p>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-orange-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+                  <span className="text-2xl font-bold text-orange-600">4</span>
+                </div>
+                <h4 className="font-semibold text-gray-900">Quick Check-in</h4>
+                <p className="text-sm text-gray-600">Show your QR code at the clinic for instant check-in.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+
+      {/* Booking Modal */}
+      <Modal
+        isOpen={showBookingModal}
+        onClose={() => setShowBookingModal(false)}
+        title="Book Your Token"
+        size="lg"
+      >
+        <BookingForm onSubmit={handleBookToken} loading={bookingLoading} />
+      </Modal>
+
+      {/* Confirmation Modal */}
+      <Modal
+        isOpen={showConfirmationModal}
+        onClose={() => setShowConfirmationModal(false)}
+        title="Booking Confirmed!"
+        size="lg"
+      >
+        {bookingResult && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Token Booked Successfully!</h3>
+              <p className="text-gray-600">Your appointment has been confirmed.</p>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Booking Details</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Patient ID:</span>
+                      <span className="font-medium">{bookingResult.uid}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Token Number:</span>
+                      <span className="font-bold text-blue-600 text-lg">{bookingResult.stn}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Department:</span>
+                      <span className="font-medium capitalize">{bookingResult.department}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Date:</span>
+                      <span className="font-medium">{bookingResult.visit_date}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Payment:</span>
+                      <span className={`font-medium px-2 py-1 rounded text-xs ${
+                        bookingResult.payment_status === 'paid' ? 'bg-green-100 text-green-800' :
+                        bookingResult.payment_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {bookingResult.payment_status.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <h4 className="font-semibold text-blue-900 mb-3">Queue Status</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-blue-700">Now Serving:</span>
+                      <span className="font-bold text-blue-900">{bookingResult.now_serving}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-blue-700">Your Position:</span>
+                      <span className="font-bold text-blue-900">#{bookingResult.position}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-blue-700">Est. Wait Time:</span>
+                      <span className="font-bold text-blue-900">{bookingResult.estimated_wait_minutes} min</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <h4 className="font-semibold text-gray-900 mb-3">Your QR Code</h4>
+                {qrCodeDataURL && (
+                  <div className="space-y-4">
+                    <img
+                      src={qrCodeDataURL}
+                      alt="QR Code"
+                      className="w-48 h-48 mx-auto border border-gray-200 rounded-lg"
+                    />
+                    <Button onClick={handleDownloadQR} variant="outline" className="w-full">
+                      <QrCode className="mr-2 h-4 w-4" />
+                      Download QR Code
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h5 className="font-semibold text-yellow-800 mb-2">Important Instructions:</h5>
+              <ul className="text-sm text-yellow-700 space-y-1">
+                <li>• Save or download your QR code for check-in</li>
+                <li>• Arrive at the clinic when your token is close to being served</li>
+                <li>• Show your QR code to the reception for quick check-in</li>
+                <li>• Track the live queue status on this page</li>
+              </ul>
+            </div>
+
+            <div className="flex space-x-3">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowConfirmationModal(false)}
+                className="flex-1"
+              >
+                Close
+              </Button>
+              <Button onClick={() => window.location.reload()} className="flex-1">
+                Track Queue
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
