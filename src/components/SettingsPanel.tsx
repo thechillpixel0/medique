@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Plus, Trash2, Edit } from 'lucide-react';
+import { Settings, Save, Plus, Trash2, Edit, AlertCircle } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Select } from './ui/Select';
@@ -19,8 +19,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
   const [departments, setDepartments] = useState<Department[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
@@ -30,90 +32,199 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
 
   const fetchData = async () => {
     setLoading(true);
+    setError('');
     try {
       const [settingsRes, departmentsRes, doctorsRes] = await Promise.all([
         supabase.from('clinic_settings').select('*').order('setting_key'),
-        supabase.from('departments').select('*').order('name'),
+        supabase.from('departments').select('*').order('display_name'),
         supabase.from('doctors').select('*').order('name')
       ]);
 
-      if (settingsRes.data) setSettings(settingsRes.data);
-      if (departmentsRes.data) setDepartments(departmentsRes.data);
-      if (doctorsRes.data) setDoctors(doctorsRes.data);
-    } catch (error) {
+      if (settingsRes.error) throw settingsRes.error;
+      if (departmentsRes.error) throw departmentsRes.error;
+      if (doctorsRes.error) throw doctorsRes.error;
+
+      setSettings(settingsRes.data || []);
+      setDepartments(departmentsRes.data || []);
+      setDoctors(doctorsRes.data || []);
+
+      // Initialize default settings if none exist
+      if (!settingsRes.data || settingsRes.data.length === 0) {
+        await initializeDefaultSettings();
+      }
+    } catch (error: any) {
       console.error('Error fetching settings:', error);
+      setError(error.message || 'Failed to load settings');
     } finally {
       setLoading(false);
     }
   };
 
+  const initializeDefaultSettings = async () => {
+    const defaultSettings = [
+      {
+        setting_key: 'clinic_name',
+        setting_value: JSON.stringify('MediQueue Clinic'),
+        setting_type: 'general',
+        description: 'Name of the clinic'
+      },
+      {
+        setting_key: 'average_consultation_time',
+        setting_value: JSON.stringify(15),
+        setting_type: 'general',
+        description: 'Average consultation time in minutes'
+      },
+      {
+        setting_key: 'max_tokens_per_day',
+        setting_value: JSON.stringify(100),
+        setting_type: 'general',
+        description: 'Maximum tokens per day per department'
+      },
+      {
+        setting_key: 'clinic_hours_start',
+        setting_value: JSON.stringify('09:00'),
+        setting_type: 'general',
+        description: 'Clinic opening time'
+      },
+      {
+        setting_key: 'clinic_hours_end',
+        setting_value: JSON.stringify('18:00'),
+        setting_type: 'general',
+        description: 'Clinic closing time'
+      }
+    ];
+
+    try {
+      const { error } = await supabase
+        .from('clinic_settings')
+        .insert(defaultSettings);
+      
+      if (error) throw error;
+      fetchData();
+    } catch (error) {
+      console.error('Error initializing settings:', error);
+    }
+  };
+
   const updateSetting = async (key: string, value: any) => {
+    setSaving(true);
+    setError('');
     try {
       const { error } = await supabase
         .from('clinic_settings')
         .upsert({ 
           setting_key: key, 
           setting_value: JSON.stringify(value),
-          setting_type: 'general'
+          setting_type: 'general',
+          description: settings.find(s => s.setting_key === key)?.description || ''
         });
 
       if (error) throw error;
-      fetchData();
-    } catch (error) {
+      
+      // Update local state
+      setSettings(prev => prev.map(s => 
+        s.setting_key === key 
+          ? { ...s, setting_value: JSON.stringify(value) }
+          : s
+      ));
+    } catch (error: any) {
       console.error('Error updating setting:', error);
-      alert('Failed to update setting');
+      setError(error.message || 'Failed to update setting');
+    } finally {
+      setSaving(false);
     }
   };
 
   const saveDepartment = async (department: Partial<Department>) => {
+    setSaving(true);
+    setError('');
     try {
+      // Validate required fields
+      if (!department.name || !department.display_name) {
+        throw new Error('Name and display name are required');
+      }
+
+      const departmentData = {
+        ...department,
+        name: department.name.toLowerCase().replace(/\s+/g, '_'),
+        consultation_fee: Number(department.consultation_fee) || 0,
+        average_consultation_time: Number(department.average_consultation_time) || 15,
+        color_code: department.color_code || '#3B82F6',
+        is_active: department.is_active !== false
+      };
+
       if (department.id) {
         const { error } = await supabase
           .from('departments')
-          .update(department)
+          .update(departmentData)
           .eq('id', department.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('departments')
-          .insert(department);
+          .insert(departmentData);
         if (error) throw error;
       }
-      fetchData();
+      
+      await fetchData();
       setShowEditModal(false);
       setEditingItem(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving department:', error);
-      alert('Failed to save department');
+      setError(error.message || 'Failed to save department');
+    } finally {
+      setSaving(false);
     }
   };
 
   const saveDoctor = async (doctor: Partial<Doctor>) => {
+    setSaving(true);
+    setError('');
     try {
+      // Validate required fields
+      if (!doctor.name || !doctor.specialization) {
+        throw new Error('Name and specialization are required');
+      }
+
+      const doctorData = {
+        ...doctor,
+        experience_years: Number(doctor.experience_years) || 0,
+        consultation_fee: Number(doctor.consultation_fee) || 0,
+        max_patients_per_day: Number(doctor.max_patients_per_day) || 50,
+        available_days: doctor.available_days || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        available_hours: doctor.available_hours || { start: '09:00', end: '17:00' },
+        status: doctor.status || 'active'
+      };
+
       if (doctor.id) {
         const { error } = await supabase
           .from('doctors')
-          .update(doctor)
+          .update(doctorData)
           .eq('id', doctor.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('doctors')
-          .insert(doctor);
+          .insert(doctorData);
         if (error) throw error;
       }
-      fetchData();
+      
+      await fetchData();
       setShowEditModal(false);
       setEditingItem(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving doctor:', error);
-      alert('Failed to save doctor');
+      setError(error.message || 'Failed to save doctor');
+    } finally {
+      setSaving(false);
     }
   };
 
   const deleteItem = async (table: string, id: string) => {
     if (!confirm('Are you sure you want to delete this item?')) return;
 
+    setSaving(true);
+    setError('');
     try {
       const { error } = await supabase
         .from(table)
@@ -121,50 +232,93 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         .eq('id', id);
 
       if (error) throw error;
-      fetchData();
-    } catch (error) {
+      await fetchData();
+    } catch (error: any) {
       console.error('Error deleting item:', error);
-      alert('Failed to delete item');
+      setError(error.message || 'Failed to delete item');
+    } finally {
+      setSaving(false);
     }
   };
 
   const renderGeneralSettings = () => (
     <div className="space-y-6">
-      {settings.filter(s => s.setting_type === 'general').map((setting) => (
-        <div key={setting.id} className="flex items-center justify-between p-4 border rounded-lg">
-          <div>
-            <h4 className="font-medium">{setting.setting_key.replace('_', ' ').toUpperCase()}</h4>
-            <p className="text-sm text-gray-600">{setting.description}</p>
-          </div>
-          <div className="w-64">
-            <Input
-              value={JSON.parse(setting.setting_value)}
-              onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
-              onBlur={(e) => updateSetting(setting.setting_key, e.target.value)}
-            />
-          </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+          <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+          <span className="text-red-700">{error}</span>
         </div>
-      ))}
+      )}
+      
+      {settings.length === 0 ? (
+        <div className="text-center py-8">
+          <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500">No settings found. Initializing defaults...</p>
+        </div>
+      ) : (
+        settings.map((setting) => (
+          <div key={setting.id} className="flex items-center justify-between p-4 border rounded-lg bg-white">
+            <div className="flex-1">
+              <h4 className="font-medium text-gray-900">
+                {setting.setting_key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </h4>
+              <p className="text-sm text-gray-600">{setting.description}</p>
+            </div>
+            <div className="w-64 ml-4">
+              {setting.setting_key.includes('time') ? (
+                <Input
+                  type="time"
+                  value={JSON.parse(setting.setting_value)}
+                  onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
+                  disabled={saving}
+                />
+              ) : setting.setting_key.includes('max_') || setting.setting_key.includes('average_') ? (
+                <Input
+                  type="number"
+                  value={JSON.parse(setting.setting_value)}
+                  onChange={(e) => updateSetting(setting.setting_key, parseInt(e.target.value) || 0)}
+                  disabled={saving}
+                  min="0"
+                />
+              ) : (
+                <Input
+                  value={JSON.parse(setting.setting_value)}
+                  onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
+                  disabled={saving}
+                />
+              )}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 
   const renderDepartments = () => (
     <div className="space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+          <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+          <span className="text-red-700">{error}</span>
+        </div>
+      )}
+      
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">Departments</h3>
+        <h3 className="text-lg font-semibold">Departments ({departments.length})</h3>
         <Button
           onClick={() => {
             setEditingItem({
               name: '',
               display_name: '',
               description: '',
-              consultation_fee: 0,
+              consultation_fee: 500,
               average_consultation_time: 15,
               color_code: '#3B82F6',
               is_active: true
             });
             setShowEditModal(true);
           }}
+          disabled={saving}
         >
           <Plus className="h-4 w-4 mr-2" />
           Add Department
@@ -176,17 +330,23 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           <Card key={dept.id}>
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 flex-1">
                   <div
-                    className="w-4 h-4 rounded-full"
+                    className="w-6 h-6 rounded-full border-2 border-white shadow-sm"
                     style={{ backgroundColor: dept.color_code }}
                   ></div>
-                  <div>
-                    <h4 className="font-medium">{dept.display_name}</h4>
-                    <p className="text-sm text-gray-600">{dept.description}</p>
-                    <p className="text-sm text-gray-500">
-                      Fee: ₹{dept.consultation_fee} | Time: {dept.average_consultation_time}min
-                    </p>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-gray-900">{dept.display_name}</h4>
+                    <p className="text-sm text-gray-600">{dept.description || 'No description'}</p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
+                      <span>Fee: ₹{dept.consultation_fee}</span>
+                      <span>Time: {dept.average_consultation_time}min</span>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        dept.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {dept.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex space-x-2">
@@ -197,6 +357,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                       setEditingItem(dept);
                       setShowEditModal(true);
                     }}
+                    disabled={saving}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -204,6 +365,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                     size="sm"
                     variant="danger"
                     onClick={() => deleteItem('departments', dept.id)}
+                    disabled={saving}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -212,14 +374,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
             </CardContent>
           </Card>
         ))}
+        
+        {departments.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            <Plus className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <p>No departments found. Add your first department to get started.</p>
+          </div>
+        )}
       </div>
     </div>
   );
 
   const renderDoctors = () => (
     <div className="space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+          <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+          <span className="text-red-700">{error}</span>
+        </div>
+      )}
+      
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">Doctors</h3>
+        <h3 className="text-lg font-semibold">Doctors ({doctors.length})</h3>
         <Button
           onClick={() => {
             setEditingItem({
@@ -227,7 +403,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
               specialization: '',
               qualification: '',
               experience_years: 0,
-              consultation_fee: 0,
+              consultation_fee: 500,
               available_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
               available_hours: { start: '09:00', end: '17:00' },
               max_patients_per_day: 50,
@@ -235,6 +411,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
             });
             setShowEditModal(true);
           }}
+          disabled={saving}
         >
           <Plus className="h-4 w-4 mr-2" />
           Add Doctor
@@ -246,24 +423,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           <Card key={doctor.id}>
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">{doctor.name}</h4>
-                  <p className="text-sm text-gray-600">{doctor.specialization} | {doctor.qualification}</p>
-                  <p className="text-sm text-gray-500">
-                    {doctor.experience_years} years exp | ₹{doctor.consultation_fee} | Max: {doctor.max_patients_per_day}/day
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <h4 className="font-medium text-gray-900">{doctor.name}</h4>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      doctor.status === 'active' ? 'bg-green-100 text-green-800' :
+                      doctor.status === 'on_leave' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {doctor.status.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-1">
+                    {doctor.specialization} • {doctor.qualification || 'No qualification listed'}
                   </p>
-                  <p className="text-sm text-gray-500">
-                    {doctor.available_hours.start} - {doctor.available_hours.end}
+                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                    <span>{doctor.experience_years} years exp</span>
+                    <span>₹{doctor.consultation_fee}</span>
+                    <span>Max: {doctor.max_patients_per_day}/day</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {doctor.available_hours.start} - {doctor.available_hours.end} • {doctor.available_days.length} days/week
                   </p>
                 </div>
                 <div className="flex space-x-2">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    doctor.status === 'active' ? 'bg-green-100 text-green-800' :
-                    doctor.status === 'on_leave' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {doctor.status.replace('_', ' ').toUpperCase()}
-                  </span>
                   <Button
                     size="sm"
                     variant="outline"
@@ -271,6 +454,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                       setEditingItem(doctor);
                       setShowEditModal(true);
                     }}
+                    disabled={saving}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -278,6 +462,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                     size="sm"
                     variant="danger"
                     onClick={() => deleteItem('doctors', doctor.id)}
+                    disabled={saving}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -286,6 +471,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
             </CardContent>
           </Card>
         ))}
+        
+        {doctors.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            <Plus className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <p>No doctors found. Add your first doctor to get started.</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -302,42 +494,59 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         onClose={() => {
           setShowEditModal(false);
           setEditingItem(null);
+          setError('');
         }}
         title={`${editingItem.id ? 'Edit' : 'Add'} ${isDepartment ? 'Department' : 'Doctor'}`}
         size="lg"
       >
         <div className="space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+              <span className="text-red-700">{error}</span>
+            </div>
+          )}
+          
           {isDepartment && (
             <>
               <div className="grid md:grid-cols-2 gap-4">
                 <Input
-                  label="Name"
+                  label="Name (Internal)"
                   value={editingItem.name}
                   onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+                  placeholder="e.g., general_medicine"
+                  required
                 />
                 <Input
                   label="Display Name"
                   value={editingItem.display_name}
                   onChange={(e) => setEditingItem({...editingItem, display_name: e.target.value})}
+                  placeholder="e.g., General Medicine"
+                  required
                 />
               </div>
               <Input
                 label="Description"
-                value={editingItem.description}
+                value={editingItem.description || ''}
                 onChange={(e) => setEditingItem({...editingItem, description: e.target.value})}
+                placeholder="Brief description of the department"
               />
               <div className="grid md:grid-cols-3 gap-4">
                 <Input
-                  label="Consultation Fee"
+                  label="Consultation Fee (₹)"
                   type="number"
                   value={editingItem.consultation_fee}
-                  onChange={(e) => setEditingItem({...editingItem, consultation_fee: parseFloat(e.target.value)})}
+                  onChange={(e) => setEditingItem({...editingItem, consultation_fee: parseFloat(e.target.value) || 0})}
+                  min="0"
+                  required
                 />
                 <Input
                   label="Avg Time (minutes)"
                   type="number"
                   value={editingItem.average_consultation_time}
-                  onChange={(e) => setEditingItem({...editingItem, average_consultation_time: parseInt(e.target.value)})}
+                  onChange={(e) => setEditingItem({...editingItem, average_consultation_time: parseInt(e.target.value) || 15})}
+                  min="1"
+                  required
                 />
                 <Input
                   label="Color Code"
@@ -346,6 +555,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                   onChange={(e) => setEditingItem({...editingItem, color_code: e.target.value})}
                 />
               </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="is_active"
+                  checked={editingItem.is_active}
+                  onChange={(e) => setEditingItem({...editingItem, is_active: e.target.checked})}
+                  className="rounded border-gray-300"
+                />
+                <label htmlFor="is_active" className="text-sm font-medium text-gray-700">
+                  Active Department
+                </label>
+              </div>
             </>
           )}
 
@@ -353,52 +574,62 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
             <>
               <div className="grid md:grid-cols-2 gap-4">
                 <Input
-                  label="Name"
+                  label="Full Name"
                   value={editingItem.name}
                   onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+                  placeholder="Dr. John Doe"
+                  required
                 />
-                <Input
+                <Select
                   label="Specialization"
                   value={editingItem.specialization}
                   onChange={(e) => setEditingItem({...editingItem, specialization: e.target.value})}
+                  options={[
+                    { value: '', label: 'Select Specialization' },
+                    ...departments.map(dept => ({ value: dept.name, label: dept.display_name }))
+                  ]}
+                  required
                 />
               </div>
               <div className="grid md:grid-cols-2 gap-4">
                 <Input
                   label="Qualification"
-                  value={editingItem.qualification}
+                  value={editingItem.qualification || ''}
                   onChange={(e) => setEditingItem({...editingItem, qualification: e.target.value})}
+                  placeholder="MBBS, MD"
                 />
                 <Input
                   label="Experience (years)"
                   type="number"
                   value={editingItem.experience_years}
-                  onChange={(e) => setEditingItem({...editingItem, experience_years: parseInt(e.target.value)})}
+                  onChange={(e) => setEditingItem({...editingItem, experience_years: parseInt(e.target.value) || 0})}
+                  min="0"
                 />
               </div>
               <div className="grid md:grid-cols-3 gap-4">
                 <Input
-                  label="Consultation Fee"
+                  label="Consultation Fee (₹)"
                   type="number"
                   value={editingItem.consultation_fee}
-                  onChange={(e) => setEditingItem({...editingItem, consultation_fee: parseFloat(e.target.value)})}
+                  onChange={(e) => setEditingItem({...editingItem, consultation_fee: parseFloat(e.target.value) || 0})}
+                  min="0"
                 />
                 <Input
                   label="Start Time"
                   type="time"
-                  value={editingItem.available_hours.start}
+                  value={editingItem.available_hours?.start || '09:00'}
                   onChange={(e) => setEditingItem({
                     ...editingItem, 
-                    available_hours: {...editingItem.available_hours, start: e.target.value}
+                    available_hours: {...(editingItem.available_hours || {}), start: e.target.value}
                   })}
                 />
                 <Input
                   label="End Time"
                   type="time"
-                  value={editingItem.available_hours.end}
+                  value={editingItem.available_hours?.end || '17:00'}
                   onChange={(e) => setEditingItem({
                     ...editingItem, 
-                    available_hours: {...editingItem.available_hours, end: e.target.value}
+                    available_hours: {...(editingItem.available_hours || {}), end: e.target.value}
                   })}
                 />
               </div>
@@ -406,7 +637,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                 label="Max Patients Per Day"
                 type="number"
                 value={editingItem.max_patients_per_day}
-                onChange={(e) => setEditingItem({...editingItem, max_patients_per_day: parseInt(e.target.value)})}
+                onChange={(e) => setEditingItem({...editingItem, max_patients_per_day: parseInt(e.target.value) || 50})}
+                min="1"
               />
               <Select
                 label="Status"
@@ -417,6 +649,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                   { value: 'inactive', label: 'Inactive' },
                   { value: 'on_leave', label: 'On Leave' }
                 ]}
+                required
               />
             </>
           )}
@@ -427,8 +660,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
               onClick={() => {
                 setShowEditModal(false);
                 setEditingItem(null);
+                setError('');
               }}
               className="flex-1"
+              disabled={saving}
             >
               Cancel
             </Button>
@@ -441,9 +676,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                 }
               }}
               className="flex-1"
+              loading={saving}
             >
               <Save className="h-4 w-4 mr-2" />
-              Save
+              {saving ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </div>
@@ -459,15 +695,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
               {[
-                { key: 'general', label: 'General', icon: Settings },
-                { key: 'departments', label: 'Departments', icon: Settings },
-                { key: 'doctors', label: 'Doctors', icon: Settings },
-                { key: 'payment', label: 'Payment', icon: Settings }
+                { key: 'general', label: 'General Settings', icon: Settings },
+                { key: 'departments', label: `Departments (${departments.length})`, icon: Settings },
+                { key: 'doctors', label: `Doctors (${doctors.length})`, icon: Settings },
+                { key: 'payment', label: 'Payment Settings', icon: Settings }
               ].map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => setActiveTab(key as any)}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
+                  className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center transition-colors ${
                     activeTab === key
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -485,7 +721,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
             {loading ? (
               <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="text-gray-600 mt-2">Loading...</p>
+                <p className="text-gray-600 mt-2">Loading settings...</p>
               </div>
             ) : (
               <>
@@ -493,8 +729,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                 {activeTab === 'departments' && renderDepartments()}
                 {activeTab === 'doctors' && renderDoctors()}
                 {activeTab === 'payment' && (
-                  <div className="text-center py-8 text-gray-500">
-                    Payment settings coming soon...
+                  <div className="text-center py-8">
+                    <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Payment Settings</h3>
+                    <p className="text-gray-500 mb-4">Configure payment gateways and billing options</p>
+                    <Button variant="outline" disabled>
+                      Coming Soon
+                    </Button>
                   </div>
                 )}
               </>

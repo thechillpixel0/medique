@@ -13,9 +13,13 @@ interface QRScannerProps {
 export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan }) => {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const [error, setError] = useState<string>('');
+  const [isScanning, setIsScanning] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    
+    setIsScanning(true);
+    setError('');
 
     const config: Html5QrcodeScannerConfig = {
       fps: 10,
@@ -28,16 +32,21 @@ export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan })
 
     scanner.render(
       (decodedText) => {
+        setIsScanning(false);
         const payload = parseQRCode(decodedText);
         if (payload) {
           onScan(payload);
           onClose();
         } else {
           setError('Invalid QR code format');
+          setIsScanning(true);
         }
       },
       (error) => {
-        console.warn('QR scan error:', error);
+        // Only log actual errors, not scanning attempts
+        if (!error.includes('No MultiFormat Readers')) {
+          console.warn('QR scan error:', error);
+        }
       }
     );
 
@@ -50,6 +59,7 @@ export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan })
     if (scannerRef.current) {
       scannerRef.current.clear();
     }
+    setIsScanning(false);
     setError('');
     onClose();
   };
@@ -57,11 +67,30 @@ export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan })
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Scan QR Code" size="md">
       <div className="space-y-4">
+        {isScanning && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-blue-800 text-center">
+              📱 Point your camera at the QR code to scan
+            </p>
+          </div>
+        )}
+        
         <div id="qr-reader" className="w-full"></div>
         
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-red-800">{error}</p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                setError('');
+                setIsScanning(true);
+              }}
+              className="mt-2"
+            >
+              Try Again
+            </Button>
           </div>
         )}
 

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { QueueWidget } from '../components/QueueWidget';
-import { Queue3DVisualization } from '../components/Queue3DVisualization';
+import { Queue2DVisualization } from '../components/Queue2DVisualization';
 import { BookingForm } from '../components/BookingForm';
 import { PatientLookup } from '../components/PatientLookup';
 import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
@@ -252,16 +252,15 @@ export const HomePage: React.FC = () => {
         {/* Live Queue Widget */}
         <QueueWidget />
 
-        {/* 3D Queue Visualization */}
+        {/* 2D Queue Visualization */}
         <Card className="mb-12">
           <CardHeader>
-            <h3 className="text-2xl font-bold text-center text-gray-900">Live Queue Monitor</h3>
-            <p className="text-center text-gray-600">Real-time 3D visualization of all department queues</p>
+            <h3 className="text-2xl font-bold text-center text-gray-900">Live Queue Dashboard</h3>
+            <p className="text-center text-gray-600">Real-time visualization of all department queues with patient emojis</p>
           </CardHeader>
           <CardContent>
-            <Queue3DVisualization 
+            <Queue2DVisualization 
               departmentStats={departmentStats}
-              className="h-80"
             />
           </CardContent>
         </Card>

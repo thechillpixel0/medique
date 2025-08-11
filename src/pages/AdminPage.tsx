@@ -162,12 +162,17 @@ export const AdminPage: React.FC = () => {
 
   const processPayment = async (visitId: string, amount: number, method: string = 'cash') => {
     try {
+      const visit = visits.find(v => v.id === visitId);
+      if (!visit) {
+        throw new Error('Visit not found');
+      }
+
       // Create payment transaction
       const { data: transaction, error: transactionError } = await supabase
         .from('payment_transactions')
         .insert({
           visit_id: visitId,
-          patient_id: visits.find(v => v.id === visitId)?.patient_id,
+          patient_id: visit.patient_id,
           amount: amount,
           payment_method: method,
           status: 'completed',
@@ -189,9 +194,25 @@ export const AdminPage: React.FC = () => {
 
       refetch();
       alert('Payment processed successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert('Failed to process payment');
+      alert(error.message || 'Failed to process payment');
+    }
+  };
+
+  const logAuditAction = async (action: string, resourceType: string, resourceId: string, payload?: any) => {
+    try {
+      await supabase
+        .from('audit_logs')
+        .insert({
+          actor_id: user?.id,
+          action_type: action,
+          action_payload: payload,
+          resource_type: resourceType,
+          resource_id: resourceId
+        });
+    } catch (error) {
+      console.error('Error logging audit action:', error);
     }
   };
 
@@ -201,6 +222,14 @@ export const AdminPage: React.FC = () => {
       
       if (status === 'completed') {
         updates.completed_at = new Date().toISOString();
+      } else if (status === 'checked_in') {
+        updates.checked_in_at = new Date().toISOString();
+      } else if (status === 'in_service') {
+        updates.checked_in_at = updates.checked_in_at || new Date().toISOString();
+      } else if (status === 'checked_in') {
+        updates.checked_in_at = new Date().toISOString();
+      } else if (status === 'in_service') {
+        updates.checked_in_at = updates.checked_in_at || new Date().toISOString();
       }
 
       const { error } = await supabase
@@ -209,6 +238,12 @@ export const AdminPage: React.FC = () => {
         .eq('id', visitId);
 
       if (error) throw error;
+
+      // Log audit action
+      await logAuditAction('UPDATE_VISIT_STATUS', 'visit', visitId, { 
+        old_status: visits.find(v => v.id === visitId)?.status,
+        new_status: status 
+      });
 
       refetch();
     } catch (error) {
@@ -225,6 +260,12 @@ export const AdminPage: React.FC = () => {
         .eq('id', visitId);
 
       if (error) throw error;
+
+      // Log audit action
+      await logAuditAction('UPDATE_PAYMENT_STATUS', 'visit', visitId, { 
+        old_payment_status: visits.find(v => v.id === visitId)?.payment_status,
+        new_payment_status: paymentStatus 
+      });
 
       refetch();
     } catch (error) {
@@ -562,7 +603,9 @@ export const AdminPage: React.FC = () => {
                           {visit.status === 'waiting' && (
                             <Button
                               size="sm"
-                              onClick={() => updateVisitStatus(visit.id, 'checked_in')}
+                              onClick={async () => {
+                                await updateVisitStatus(visit.id, 'checked_in');
+                              }}
                             >
                               Check In
                             </Button>
@@ -572,7 +615,9 @@ export const AdminPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => updateVisitStatus(visit.id, 'in_service')}
+                              onClick={async () => {
+                                await updateVisitStatus(visit.id, 'in_service');
+                              }}
                             >
                               Start Service
                             </Button>
@@ -582,7 +627,9 @@ export const AdminPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => updateVisitStatus(visit.id, 'completed')}
+                              onClick={async () => {
+                                await updateVisitStatus(visit.id, 'completed');
+                              }}
                             >
                               Complete
                             </Button>
@@ -592,10 +639,10 @@ export const AdminPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="secondary"
-                              onClick={() => {
+                              onClick={async () => {
                                 const amount = prompt('Enter payment amount:', '500');
                                 if (amount) {
-                                  processPayment(visit.id, parseFloat(amount));
+                                  await processPayment(visit.id, parseFloat(amount));
                                 }
                               }}
                             >
@@ -720,8 +767,8 @@ export const AdminPage: React.FC = () => {
               
               {selectedVisit.status === 'waiting' && (
                 <Button
-                  onClick={() => {
-                    updateVisitStatus(selectedVisit.id, 'checked_in');
+                  onClick={async () => {
+                    await updateVisitStatus(selectedVisit.id, 'checked_in');
                     setShowVisitModal(false);
                   }}
                   className="flex-1"
@@ -732,8 +779,8 @@ export const AdminPage: React.FC = () => {
               
               {selectedVisit.status === 'checked_in' && (
                 <Button
-                  onClick={() => {
-                    updateVisitStatus(selectedVisit.id, 'in_service');
+                  onClick={async () => {
+                    await updateVisitStatus(selectedVisit.id, 'in_service');
                     setShowVisitModal(false);
                   }}
                   className="flex-1"
@@ -744,8 +791,8 @@ export const AdminPage: React.FC = () => {
               
               {selectedVisit.status === 'in_service' && (
                 <Button
-                  onClick={() => {
-                    updateVisitStatus(selectedVisit.id, 'completed');
+                  onClick={async () => {
+                    await updateVisitStatus(selectedVisit.id, 'completed');
                     setShowVisitModal(false);
                   }}
                   className="flex-1"
@@ -757,10 +804,10 @@ export const AdminPage: React.FC = () => {
               {selectedVisit.payment_status === 'pay_at_clinic' && (
                 <Button
                   variant="secondary"
-                  onClick={() => {
+                  onClick={async () => {
                     const amount = prompt('Enter payment amount:', '500');
                     if (amount) {
-                      processPayment(selectedVisit.id, parseFloat(amount));
+                      await processPayment(selectedVisit.id, parseFloat(amount));
                       setShowVisitModal(false);
                     }
                   }}

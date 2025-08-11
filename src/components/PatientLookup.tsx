@@ -25,6 +25,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
     if (!searchQuery.trim()) return;
 
     setLoading(true);
+    setError('');
     try {
       // Search by UID, phone, or name
       let query = supabase
@@ -42,7 +43,11 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
       const { data: patientData, error: patientError } = await query.limit(1).single();
 
       if (patientError) {
-        alert('Patient not found');
+        if (patientError.code === 'PGRST116') {
+          setError('Patient not found. Please check the search criteria.');
+        } else {
+          throw patientError;
+        }
         return;
       }
 
@@ -78,7 +83,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
 
     } catch (error) {
       console.error('Error searching patient:', error);
-      alert('Error searching patient');
+      setError('Error searching patient. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -90,6 +95,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
     setVisits([]);
     setMedicalHistory([]);
     setActiveTab('visits');
+    setError('');
     onClose();
   };
 
@@ -104,12 +110,19 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && searchPatient()}
             className="flex-1"
+            error={error}
           />
           <Button onClick={searchPatient} loading={loading}>
             <Search className="h-4 w-4 mr-2" />
             Search
           </Button>
         </div>
+
+        {error && !loading && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800">{error}</p>
+          </div>
+        )}
 
         {patient && (
           <div className="space-y-6">
