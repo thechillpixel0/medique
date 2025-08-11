@@ -22,6 +22,10 @@ export const HomePage: React.FC = () => {
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
   const [departmentStats, setDepartmentStats] = useState<DepartmentStats[]>([]);
   const [error, setError] = useState<string>('');
+  const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState<string>('');
+  const [stripeEnabled, setStripeEnabled] = useState<boolean>(false);
+  const [showStripePayment, setShowStripePayment] = useState<boolean>(false);
 
   // Real-time updates
   useRealTimeUpdates(() => {
