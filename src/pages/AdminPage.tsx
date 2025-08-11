@@ -87,6 +87,7 @@ export const AdminPage: React.FC = () => {
                 type="email"
                 value={loginForm.email}
                 onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="admin@example.com"
                 required
               />
               <Input
@@ -94,11 +95,17 @@ export const AdminPage: React.FC = () => {
                 type="password"
                 value={loginForm.password}
                 onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
+                placeholder="Enter your password"
                 required
               />
               <Button type="submit" loading={loginLoading} className="w-full">
                 Sign In
               </Button>
+              <div className="text-center text-sm text-gray-600 mt-4">
+                <p>Demo credentials:</p>
+                <p>Email: admin@clinic.com</p>
+                <p>Password: admin123</p>
+              </div>
             </form>
           </CardContent>
         </Card>

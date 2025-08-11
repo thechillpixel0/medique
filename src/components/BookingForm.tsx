@@ -85,7 +85,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
     if (!formData.name.trim()) newErrors.name = 'Name is required';
     if (!formData.age || formData.age < 1 || formData.age > 120) newErrors.age = 'Valid age is required';
     if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
-    if (formData.phone.length < 10) newErrors.phone = 'Phone number must be at least 10 digits';
+    if (formData.phone.trim().length < 10) newErrors.phone = 'Phone number must be at least 10 digits';
     if (!formData.department) newErrors.department = 'Department is required';
 
     setErrors(newErrors);

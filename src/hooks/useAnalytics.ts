@@ -15,17 +15,27 @@ export const useAnalytics = () => {
       // Today's stats
       const { data: todayVisits } = await supabase
         .from('visits')
-        .select('*, payment_transactions(*)')
+        .select(`
+          *,
+          payment_transactions(*)
+        `)
         .eq('visit_date', today);
 
       const { data: weeklyVisits } = await supabase
         .from('visits')
-        .select('visit_date, department, payment_transactions(*)')
+        .select(`
+          visit_date,
+          department,
+          payment_transactions(*)
+        `)
         .gte('visit_date', weekAgo);
 
       const { data: monthlyVisits } = await supabase
         .from('visits')
-        .select('department, payment_transactions(*)')
+        .select(`
+          department,
+          payment_transactions(*)
+        `)
         .gte('visit_date', monthAgo);
 
       // Calculate today's analytics
