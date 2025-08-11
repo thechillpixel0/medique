@@ -21,6 +21,7 @@ export const HomePage: React.FC = () => {
   const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
   const [departmentStats, setDepartmentStats] = useState<DepartmentStats[]>([]);
+  const [error, setError] = useState<string>('');
 
   // Real-time updates
   useRealTimeUpdates(() => {
@@ -29,6 +30,7 @@ export const HomePage: React.FC = () => {
 
   const fetchDepartmentStats = async () => {
     try {
+      setError('');
       const today = new Date().toISOString().split('T')[0];
       
       const { data: departments } = await supabase
@@ -36,6 +38,10 @@ export const HomePage: React.FC = () => {
         .select('*')
         .eq('is_active', true);
 
+      if (!departments || departments.length === 0) {
+        setError('No departments found. Please contact admin to set up departments.');
+        return;
+      }
       const { data: visits } = await supabase
         .from('visits')
         .select('department, status')
@@ -54,11 +60,13 @@ export const HomePage: React.FC = () => {
         
         let nowServing = 0;
         if (inServiceVisits.length > 0) {
-          const inServiceSTNs = visits?.filter((v: any) => v.department === dept.name && v.status === 'in_service').map((v: any) => v.stn) || [];
+          const inServiceSTNs = inServiceVisits.map((v: any) => v.stn);
           nowServing = Math.min(...inServiceSTNs);
         } else if (completedVisits.length > 0) {
-          const completedSTNs = visits?.filter((v: any) => v.department === dept.name && v.status === 'completed').map((v: any) => v.stn) || [];
+          const completedSTNs = completedVisits.map((v: any) => v.stn);
           nowServing = Math.max(...completedSTNs);
+        } else if (deptVisits.length > 0) {
+          nowServing = Math.min(...deptVisits.map((v: any) => v.stn)) - 1;
         }
 
         const doctorCount = doctors?.filter(d => d.specialization === dept.name).length || 0;
@@ -78,6 +86,7 @@ export const HomePage: React.FC = () => {
       setDepartmentStats(stats);
     } catch (error) {
       console.error('Error fetching department stats:', error);
+      setError('Failed to load department information. Please refresh the page.');
     }
   };
 
@@ -86,6 +95,7 @@ export const HomePage: React.FC = () => {
   }, []);
   const handleBookToken = async (bookingData: BookingRequest) => {
     setBookingLoading(true);
+    setError('');
     try {
       const today = new Date().toISOString().split('T')[0];
       
@@ -121,7 +131,6 @@ export const HomePage: React.FC = () => {
             phone: bookingData.phone,
             email: bookingData.email,
             address: bookingData.address,
-            doctor_id: bookingData.doctor_id || null,
             emergency_contact: bookingData.emergency_contact,
             blood_group: bookingData.blood_group,
             allergies: allergies.length > 0 ? allergies : null,
@@ -132,6 +141,31 @@ export const HomePage: React.FC = () => {
 
         if (createPatientError) throw createPatientError;
         patient = newPatient;
+      } else {
+        // Update existing patient with new information if provided
+        const allergies = bookingData.allergies ? 
+          bookingData.allergies.split(',').map(item => item.trim()).filter(Boolean) : 
+          [];
+        const medicalConditions = bookingData.medical_conditions ? 
+          bookingData.medical_conditions.split(',').map(item => item.trim()).filter(Boolean) : 
+          [];
+
+        const updateData: any = {};
+        if (bookingData.email && bookingData.email !== patient.email) updateData.email = bookingData.email;
+        if (bookingData.address && bookingData.address !== patient.address) updateData.address = bookingData.address;
+        if (bookingData.emergency_contact && bookingData.emergency_contact !== patient.emergency_contact) updateData.emergency_contact = bookingData.emergency_contact;
+        if (bookingData.blood_group && bookingData.blood_group !== patient.blood_group) updateData.blood_group = bookingData.blood_group;
+        if (allergies.length > 0) updateData.allergies = allergies;
+        if (medicalConditions.length > 0) updateData.medical_conditions = medicalConditions;
+
+        if (Object.keys(updateData).length > 0) {
+          const { error: updateError } = await supabase
+            .from('patients')
+            .update(updateData)
+            .eq('id', patient.id);
+          
+          if (updateError) console.warn('Failed to update patient info:', updateError);
+        }
       }
 
       // Get next STN for today and department
@@ -169,6 +203,7 @@ export const HomePage: React.FC = () => {
           status: 'waiting',
           payment_status: bookingData.payment_mode === 'pay_now' ? 'pending' : 'pay_at_clinic',
           qr_payload: JSON.stringify(qrPayload),
+          doctor_id: bookingData.doctor_id || null,
         })
         .select()
         .single();
@@ -214,7 +249,8 @@ export const HomePage: React.FC = () => {
 
     } catch (error) {
       console.error('Booking error:', error);
-      alert('Failed to book token. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to book token. Please try again.';
+      alert(errorMessage);
     } finally {
       setBookingLoading(false);
     }
@@ -246,6 +282,18 @@ export const HomePage: React.FC = () => {
 
       {/* Hero Section */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <div className="text-red-500 mr-3">⚠️</div>
+              <div>
+                <h3 className="text-red-800 font-medium">System Notice</h3>
+                <p className="text-red-700 text-sm mt-1">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div className="text-center mb-12">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             Skip the Wait,

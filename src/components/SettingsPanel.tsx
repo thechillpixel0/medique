@@ -34,24 +34,48 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
     setLoading(true);
     setError('');
     try {
-      const [settingsRes, departmentsRes, doctorsRes] = await Promise.all([
-        supabase.from('clinic_settings').select('*').order('setting_key'),
-        supabase.from('departments').select('*').order('display_name'),
-        supabase.from('doctors').select('*').order('name')
-      ]);
+      // Fetch settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('clinic_settings')
+        .select('*')
+        .order('setting_key');
 
-      if (settingsRes.error) throw settingsRes.error;
-      if (departmentsRes.error) throw departmentsRes.error;
-      if (doctorsRes.error) throw doctorsRes.error;
+      // Fetch departments
+      const { data: departmentsData, error: departmentsError } = await supabase
+        .from('departments')
+        .select('*')
+        .order('display_name');
 
-      setSettings(settingsRes.data || []);
-      setDepartments(departmentsRes.data || []);
-      setDoctors(doctorsRes.data || []);
+      // Fetch doctors
+      const { data: doctorsData, error: doctorsError } = await supabase
+        .from('doctors')
+        .select('*')
+        .order('name');
+
+      if (settingsError && settingsError.code !== 'PGRST116') {
+        console.error('Settings error:', settingsError);
+      }
+      if (departmentsError && departmentsError.code !== 'PGRST116') {
+        console.error('Departments error:', departmentsError);
+      }
+      if (doctorsError && doctorsError.code !== 'PGRST116') {
+        console.error('Doctors error:', doctorsError);
+      }
+
+      setSettings(settingsData || []);
+      setDepartments(departmentsData || []);
+      setDoctors(doctorsData || []);
 
       // Initialize default settings if none exist
-      if (!settingsRes.data || settingsRes.data.length === 0) {
+      if (!settingsData || settingsData.length === 0) {
         await initializeDefaultSettings();
       }
+
+      // Initialize default departments if none exist
+      if (!departmentsData || departmentsData.length === 0) {
+        await initializeDefaultDepartments();
+      }
+
     } catch (error: any) {
       console.error('Error fetching settings:', error);
       setError(error.message || 'Failed to load settings');
@@ -64,31 +88,31 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
     const defaultSettings = [
       {
         setting_key: 'clinic_name',
-        setting_value: JSON.stringify('MediQueue Clinic'),
+        setting_value: 'MediQueue Clinic',
         setting_type: 'general',
         description: 'Name of the clinic'
       },
       {
         setting_key: 'average_consultation_time',
-        setting_value: JSON.stringify(15),
+        setting_value: 15,
         setting_type: 'general',
         description: 'Average consultation time in minutes'
       },
       {
         setting_key: 'max_tokens_per_day',
-        setting_value: JSON.stringify(100),
+        setting_value: 100,
         setting_type: 'general',
         description: 'Maximum tokens per day per department'
       },
       {
         setting_key: 'clinic_hours_start',
-        setting_value: JSON.stringify('09:00'),
+        setting_value: '09:00',
         setting_type: 'general',
         description: 'Clinic opening time'
       },
       {
         setting_key: 'clinic_hours_end',
-        setting_value: JSON.stringify('18:00'),
+        setting_value: '18:00',
         setting_type: 'general',
         description: 'Clinic closing time'
       }
@@ -100,9 +124,75 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         .insert(defaultSettings);
       
       if (error) throw error;
-      fetchData();
+      
+      // Refresh settings
+      const { data: newSettings } = await supabase
+        .from('clinic_settings')
+        .select('*')
+        .order('setting_key');
+      
+      setSettings(newSettings || []);
     } catch (error) {
       console.error('Error initializing settings:', error);
+    }
+  };
+
+  const initializeDefaultDepartments = async () => {
+    const defaultDepartments = [
+      {
+        name: 'general',
+        display_name: 'General Medicine',
+        description: 'General medical consultation and treatment',
+        consultation_fee: 500,
+        average_consultation_time: 15,
+        color_code: '#3B82F6',
+        is_active: true
+      },
+      {
+        name: 'cardiology',
+        display_name: 'Cardiology',
+        description: 'Heart and cardiovascular system treatment',
+        consultation_fee: 800,
+        average_consultation_time: 20,
+        color_code: '#EF4444',
+        is_active: true
+      },
+      {
+        name: 'orthopedics',
+        display_name: 'Orthopedics',
+        description: 'Bone, joint, and muscle treatment',
+        consultation_fee: 700,
+        average_consultation_time: 18,
+        color_code: '#10B981',
+        is_active: true
+      },
+      {
+        name: 'pediatrics',
+        display_name: 'Pediatrics',
+        description: 'Child healthcare and treatment',
+        consultation_fee: 600,
+        average_consultation_time: 20,
+        color_code: '#F59E0B',
+        is_active: true
+      }
+    ];
+
+    try {
+      const { error } = await supabase
+        .from('departments')
+        .insert(defaultDepartments);
+      
+      if (error) throw error;
+      
+      // Refresh departments
+      const { data: newDepartments } = await supabase
+        .from('departments')
+        .select('*')
+        .order('display_name');
+      
+      setDepartments(newDepartments || []);
+    } catch (error) {
+      console.error('Error initializing departments:', error);
     }
   };
 
@@ -114,7 +204,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         .from('clinic_settings')
         .upsert({ 
           setting_key: key, 
-          setting_value: JSON.stringify(value),
+          setting_value: value,
           setting_type: 'general',
           description: settings.find(s => s.setting_key === key)?.description || ''
         });
@@ -124,7 +214,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
       // Update local state
       setSettings(prev => prev.map(s => 
         s.setting_key === key 
-          ? { ...s, setting_value: JSON.stringify(value) }
+          ? { ...s, setting_value: value }
           : s
       ));
     } catch (error: any) {
@@ -139,7 +229,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
     setSaving(true);
     setError('');
     try {
-      // Validate required fields
       if (!department.name || !department.display_name) {
         throw new Error('Name and display name are required');
       }
@@ -181,7 +270,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
     setSaving(true);
     setError('');
     try {
-      // Validate required fields
       if (!doctor.name || !doctor.specialization) {
         throw new Error('Name and specialization are required');
       }
@@ -253,7 +341,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
       {settings.length === 0 ? (
         <div className="text-center py-8">
           <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500">No settings found. Initializing defaults...</p>
+          <p className="text-gray-500">Loading settings...</p>
         </div>
       ) : (
         settings.map((setting) => (
@@ -268,21 +356,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
               {setting.setting_key.includes('time') ? (
                 <Input
                   type="time"
-                  value={JSON.parse(setting.setting_value)}
+                  value={setting.setting_value}
                   onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
                   disabled={saving}
                 />
               ) : setting.setting_key.includes('max_') || setting.setting_key.includes('average_') ? (
                 <Input
                   type="number"
-                  value={JSON.parse(setting.setting_value)}
+                  value={setting.setting_value}
                   onChange={(e) => updateSetting(setting.setting_key, parseInt(e.target.value) || 0)}
                   disabled={saving}
                   min="0"
                 />
               ) : (
                 <Input
-                  value={JSON.parse(setting.setting_value)}
+                  value={setting.setting_value}
                   onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
                   disabled={saving}
                 />
@@ -378,7 +466,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         {departments.length === 0 && (
           <div className="text-center py-8 text-gray-500">
             <Plus className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p>No departments found. Add your first department to get started.</p>
+            <p>No departments found. Default departments will be created automatically.</p>
           </div>
         )}
       </div>
@@ -686,6 +774,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
       </Modal>
     );
   };
+
+  if (!isOpen) return null;
 
   return (
     <>

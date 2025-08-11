@@ -45,6 +45,9 @@ export const useQueue = (department?: string) => {
         nowServing = Math.min(...inServiceVisits.map(v => v.stn));
       } else if (completedVisits.length > 0) {
         nowServing = Math.max(...completedVisits.map(v => v.stn));
+      } else if (visits.length > 0) {
+        // If no one is in service or completed, start from the first token
+        nowServing = Math.min(...visits.map(v => v.stn)) - 1;
       }
 
       setQueueStatus({

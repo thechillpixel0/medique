@@ -20,8 +20,12 @@ export const formatRelativeTime = (date: string | Date): string => {
 };
 
 export const isToday = (date: string | Date): boolean => {
-  const d = typeof date === 'string' ? parseISO(date) : date;
-  return format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+  try {
+    const d = typeof date === 'string' ? parseISO(date) : date;
+    return format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+  } catch (error) {
+    return false;
+  }
 };
 
 export const generateUID = (): string => {

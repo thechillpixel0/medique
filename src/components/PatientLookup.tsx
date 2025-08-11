@@ -27,6 +27,10 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
 
     setLoading(true);
     setError('');
+    setPatient(null);
+    setVisits([]);
+    setMedicalHistory([]);
+    
     try {
       // Search by UID, phone, or name
       let query = supabase

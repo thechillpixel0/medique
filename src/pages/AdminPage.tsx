@@ -134,11 +134,12 @@ export const AdminPage: React.FC = () => {
           patient:patients(*),
           doctor:doctors(*)
         `)
-        .eq('qr_payload', JSON.stringify(payload))
+        .contains('qr_payload', JSON.stringify(payload))
         .single();
 
       if (error) {
-        alert('Visit not found');
+        console.error('QR scan error:', error);
+        alert('Visit not found or QR code is invalid');
         return;
       }
 
@@ -161,6 +162,8 @@ export const AdminPage: React.FC = () => {
 
         if (updateError) {
           console.error('Error updating visit:', updateError);
+          alert('Failed to check in patient');
+          return;
         } else {
           refetch();
         }
@@ -168,6 +171,7 @@ export const AdminPage: React.FC = () => {
 
       setSelectedVisit(visit);
       setShowVisitModal(true);
+      setShowScanner(false);
     } catch (error) {
       console.error('Error handling QR scan:', error);
       alert('Error processing QR code');
