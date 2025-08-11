@@ -41,11 +41,52 @@ export const AdminPage: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showVisitModal, setShowVisitModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loginLoading, setLoginLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(30);
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+
+    const interval = setInterval(() => {
+      refetch();
+    }, refreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [autoRefreshEnabled, refreshInterval, refetch]);
+
+  // Load refresh settings
+  useEffect(() => {
+    const loadRefreshSettings = async () => {
+      try {
+        const { data } = await supabase
+          .from('clinic_settings')
+          .select('setting_value')
+          .eq('setting_key', 'auto_refresh_interval')
+          .single();
+        
+        if (data) {
+          setRefreshInterval(data.setting_value);
+        }
+      } catch (error) {
+        console.log('Using default refresh interval');
+      }
+    };
+    
+    if (user) {
+      loadRefreshSettings();
+    }
+  }, [user]);
 
   // Real-time updates
   useRealTimeUpdates(() => {
@@ -210,11 +251,20 @@ export const AdminPage: React.FC = () => {
 
       if (visitError) throw visitError;
 
+      // Log audit action
+      await logAuditAction('PROCESS_PAYMENT', 'visit', visitId, { 
+        amount,
+        method,
+        transaction_id: transaction.id 
+      });
+
+      setSuccess(`Payment of ₹${amount} processed successfully`);
       refetch();
-      alert('Payment processed successfully!');
+      setSelectedVisit(null);
+      setShowVisitModal(false);
     } catch (error: any) {
       console.error('Error processing payment:', error);
-      alert(error.message || 'Failed to process payment');
+      setError(error.message || 'Failed to process payment');
     }
   };
 
@@ -236,14 +286,11 @@ export const AdminPage: React.FC = () => {
 
   const updateVisitStatus = async (visitId: string, status: string) => {
     try {
+      setError('');
       const updates: any = { status };
       
       if (status === 'completed') {
         updates.completed_at = new Date().toISOString();
-      } else if (status === 'checked_in') {
-        updates.checked_in_at = new Date().toISOString();
-      } else if (status === 'in_service') {
-        updates.checked_in_at = updates.checked_in_at || new Date().toISOString();
       } else if (status === 'checked_in') {
         updates.checked_in_at = new Date().toISOString();
       } else if (status === 'in_service') {
@@ -263,15 +310,17 @@ export const AdminPage: React.FC = () => {
         new_status: status 
       });
 
+      setSuccess(`Visit status updated to ${status.replace('_', ' ')}`);
       refetch();
     } catch (error) {
       console.error('Error updating visit status:', error);
-      alert('Failed to update status');
+      setError('Failed to update status');
     }
   };
 
   const updatePaymentStatus = async (visitId: string, paymentStatus: string) => {
     try {
+      setError('');
       const { error } = await supabase
         .from('visits')
         .update({ payment_status: paymentStatus })
@@ -285,10 +334,11 @@ export const AdminPage: React.FC = () => {
         new_payment_status: paymentStatus 
       });
 
+      setSuccess(`Payment status updated to ${paymentStatus.replace('_', ' ')}`);
       refetch();
     } catch (error) {
       console.error('Error updating payment status:', error);
-      alert('Failed to update payment status');
+      setError('Failed to update payment status');
     }
   };
 
@@ -333,6 +383,18 @@ export const AdminPage: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 text-sm">
+                <input
+                  type="checkbox"
+                  id="auto-refresh"
+                  checked={autoRefreshEnabled}
+                  onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="auto-refresh" className="text-gray-600">
+                  Auto-refresh ({refreshInterval}s)
+                </label>
+              </div>
               <Button 
                 onClick={() => setShowScanner(true)}
                 size="sm"
@@ -658,10 +720,9 @@ export const AdminPage: React.FC = () => {
                               size="sm"
                               variant="secondary"
                               onClick={async () => {
-                                const amount = prompt('Enter payment amount:', '500');
-                                if (amount) {
-                                  await processPayment(visit.id, parseFloat(amount));
-                                }
+                                setSelectedVisit(visit);
+                                setPaymentAmount('500');
+                                setShowPaymentModal(true);
                               }}
                             >
                               <CreditCard className="h-4 w-4" />
@@ -823,11 +884,8 @@ export const AdminPage: React.FC = () => {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    const amount = prompt('Enter payment amount:', '500');
-                    if (amount) {
-                      await processPayment(selectedVisit.id, parseFloat(amount));
-                      setShowVisitModal(false);
-                    }
+                    setPaymentAmount('500');
+                    setShowPaymentModal(true);
                   }}
                   className="flex-1"
                 >
@@ -835,6 +893,94 @@ export const AdminPage: React.FC = () => {
                   Process Payment
                 </Button>
               )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Payment Processing Modal */}
+      <Modal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setPaymentAmount('');
+          setPaymentMethod('cash');
+        }}
+        title="Process Payment"
+        size="md"
+      >
+        {selectedVisit && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-2">Patient Details</h4>
+              <p className="text-sm text-gray-600">
+                {selectedVisit.patient?.name} - Token #{selectedVisit.stn}
+              </p>
+              <p className="text-sm text-gray-600 capitalize">
+                {selectedVisit.department} Department
+              </p>
+            </div>
+
+            <Input
+              label="Payment Amount (₹)"
+              type="number"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              placeholder="Enter amount"
+              min="0"
+              step="0.01"
+              required
+            />
+
+            <Select
+              label="Payment Method"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              options={[
+                { value: 'cash', label: 'Cash' },
+                { value: 'card', label: 'Card' },
+                { value: 'upi', label: 'UPI' },
+                { value: 'online', label: 'Online' },
+                { value: 'insurance', label: 'Insurance' }
+              ]}
+              required
+            />
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 text-sm">{error}</p>
+              </div>
+            )}
+
+            <div className="flex space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPaymentAmount('');
+                  setPaymentMethod('cash');
+                  setError('');
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+                    setError('Please enter a valid amount');
+                    return;
+                  }
+                  setError('');
+                  await processPayment(selectedVisit.id, parseFloat(paymentAmount), paymentMethod);
+                  setShowPaymentModal(false);
+                  setPaymentAmount('');
+                  setPaymentMethod('cash');
+                }}
+                className="flex-1"
+              >
+                Process Payment
+              </Button>
             </div>
           </div>
         )}

@@ -38,25 +38,28 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
         .select('*');
 
       if (searchQuery.startsWith('CLN1-')) {
-        query = query.eq('uid', searchQuery.toUpperCase());
+        query = query.eq('uid', searchQuery.trim().toUpperCase());
       } else if (/^\d+$/.test(searchQuery)) {
-        query = query.eq('phone', searchQuery);
+        query = query.eq('phone', searchQuery.trim());
       } else {
-        query = query.ilike('name', `%${searchQuery}%`);
+        query = query.ilike('name', `%${searchQuery.trim()}%`);
       }
 
-      const { data: patientData, error: patientError } = await query.limit(1).single();
+      const { data: patientData, error: patientError } = await query.limit(1);
 
       if (patientError) {
-        if (patientError.code === 'PGRST116') {
-          setError('Patient not found. Please check the search criteria.');
-        } else {
-          throw patientError;
-        }
+        console.error('Patient search error:', patientError);
+        setError('Patient not found. Please check the search criteria.');
         return;
       }
 
-      setPatient(patientData);
+      if (!patientData || patientData.length === 0) {
+          setError('Patient not found. Please check the search criteria.');
+        return;
+      }
+
+      const patient = Array.isArray(patientData) ? patientData[0] : patientData;
+      setPatient(patient);
 
       // Fetch all visits for this patient
       const { data: visitsData, error: visitsError } = await supabase
@@ -66,7 +69,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
           doctor:doctors(*),
           payment_transactions(*)
         `)
-        .eq('patient_id', patientData.id)
+        .eq('patient_id', patient.id)
         .order('created_at', { ascending: false });
 
       if (visitsError) throw visitsError;
@@ -80,7 +83,7 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
           doctor:doctors(*),
           visit:visits(*)
         `)
-        .eq('patient_uid', patientData.uid)
+        .eq('patient_uid', patient.uid)
         .order('created_at', { ascending: false });
 
       if (historyError) throw historyError;

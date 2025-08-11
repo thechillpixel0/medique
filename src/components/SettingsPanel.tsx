@@ -93,6 +93,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         description: 'Name of the clinic'
       },
       {
+        setting_key: 'maintenance_mode',
+        setting_value: false,
+        setting_type: 'general',
+        description: 'Enable maintenance mode to prevent new bookings'
+      },
+      {
+        setting_key: 'maintenance_message',
+        setting_value: 'System is under maintenance. Please try again later.',
+        setting_type: 'general',
+        description: 'Message to show when maintenance mode is enabled'
+      },
+      {
         setting_key: 'average_consultation_time',
         setting_value: 15,
         setting_type: 'general',
@@ -115,6 +127,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         setting_value: '18:00',
         setting_type: 'general',
         description: 'Clinic closing time'
+      },
+      {
+        setting_key: 'auto_refresh_interval',
+        setting_value: 30,
+        setting_type: 'general',
+        description: 'Auto refresh interval in seconds for admin dashboard'
+      },
+      {
+        setting_key: 'stripe_publishable_key',
+        setting_value: 'pk_test_51234567890abcdef',
+        setting_type: 'payment',
+        description: 'Stripe publishable key for payments'
+      },
+      {
+        setting_key: 'stripe_secret_key',
+        setting_value: 'sk_test_51234567890abcdef',
+        setting_type: 'payment',
+        description: 'Stripe secret key for payments'
+      },
+      {
+        setting_key: 'enable_online_payments',
+        setting_value: true,
+        setting_type: 'payment',
+        description: 'Enable online payment processing'
       }
     ];
 
@@ -207,6 +243,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           setting_value: value,
           setting_type: 'general',
           description: settings.find(s => s.setting_key === key)?.description || ''
+        }, {
+          onConflict: 'setting_key'
         });
 
       if (error) throw error;
@@ -217,6 +255,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
           ? { ...s, setting_value: value }
           : s
       ));
+      
+      // Show success message
+      setTimeout(() => {
+        const successDiv = document.createElement('div');
+        successDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        successDiv.textContent = 'Setting updated successfully!';
+        document.body.appendChild(successDiv);
+        setTimeout(() => successDiv.remove(), 3000);
+      }, 100);
+      
     } catch (error: any) {
       console.error('Error updating setting:', error);
       setError(error.message || 'Failed to update setting');
@@ -353,20 +401,41 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
               <p className="text-sm text-gray-600">{setting.description}</p>
             </div>
             <div className="w-64 ml-4">
-              {setting.setting_key.includes('time') ? (
+              {setting.setting_key === 'maintenance_mode' || setting.setting_key === 'enable_online_payments' ? (
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={setting.setting_value}
+                    onChange={(e) => updateSetting(setting.setting_key, e.target.checked)}
+                    disabled={saving}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">
+                    {setting.setting_value ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+              ) : setting.setting_key.includes('time') ? (
                 <Input
                   type="time"
                   value={setting.setting_value}
                   onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
                   disabled={saving}
                 />
-              ) : setting.setting_key.includes('max_') || setting.setting_key.includes('average_') ? (
+              ) : setting.setting_key.includes('max_') || setting.setting_key.includes('average_') || setting.setting_key.includes('interval') ? (
                 <Input
                   type="number"
                   value={setting.setting_value}
                   onChange={(e) => updateSetting(setting.setting_key, parseInt(e.target.value) || 0)}
                   disabled={saving}
                   min="0"
+                />
+              ) : setting.setting_key === 'maintenance_message' ? (
+                <textarea
+                  value={setting.setting_value}
+                  onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
+                  disabled={saving}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={2}
                 />
               ) : (
                 <Input
@@ -819,13 +888,60 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
                 {activeTab === 'departments' && renderDepartments()}
                 {activeTab === 'doctors' && renderDoctors()}
                 {activeTab === 'payment' && (
-                  <div className="text-center py-8">
-                    <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Payment Settings</h3>
-                    <p className="text-gray-500 mb-4">Configure payment gateways and billing options</p>
-                    <Button variant="outline" disabled>
-                      Coming Soon
-                    </Button>
+                  <div className="space-y-6">
+                    {error && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+                        <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+                        <span className="text-red-700">{error}</span>
+                      </div>
+                    )}
+                    
+                    {settings.filter(s => s.setting_type === 'payment').map((setting) => (
+                      <div key={setting.id} className="flex items-center justify-between p-4 border rounded-lg bg-white">
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">
+                            {setting.setting_key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </h4>
+                          <p className="text-sm text-gray-600">{setting.description}</p>
+                        </div>
+                        <div className="w-64 ml-4">
+                          {setting.setting_key === 'enable_online_payments' ? (
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                checked={setting.setting_value}
+                                onChange={(e) => updateSetting(setting.setting_key, e.target.checked)}
+                                disabled={saving}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="text-sm text-gray-700">
+                                {setting.setting_value ? 'Enabled' : 'Disabled'}
+                              </span>
+                            </div>
+                          ) : (
+                            <Input
+                              type={setting.setting_key.includes('secret') ? 'password' : 'text'}
+                              value={setting.setting_value}
+                              onChange={(e) => updateSetting(setting.setting_key, e.target.value)}
+                              disabled={saving}
+                              placeholder={setting.setting_key.includes('key') ? 'Enter your Stripe key' : ''}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-blue-900 mb-2">Stripe Test Mode</h4>
+                      <p className="text-sm text-blue-800 mb-3">
+                        The system is configured with Stripe test keys. Use test card numbers for payments:
+                      </p>
+                      <div className="text-sm text-blue-700 space-y-1">
+                        <p>• Success: 4242 4242 4242 4242</p>
+                        <p>• Decline: 4000 0000 0000 0002</p>
+                        <p>• Any future expiry date and CVC</p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </>

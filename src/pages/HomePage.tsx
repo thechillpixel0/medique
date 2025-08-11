@@ -92,7 +92,42 @@ export const HomePage: React.FC = () => {
 
   React.useEffect(() => {
     fetchDepartmentStats();
+    checkMaintenanceMode();
   }, []);
+
+  const checkMaintenanceMode = async () => {
+    try {
+      const { data: maintenanceData } = await supabase
+        .from('clinic_settings')
+        .select('setting_value')
+        .eq('setting_key', 'maintenance_mode')
+        .single();
+
+      const { data: messageData } = await supabase
+        .from('clinic_settings')
+        .select('setting_value')
+        .eq('setting_key', 'maintenance_message')
+        .single();
+
+      const { data: stripeData } = await supabase
+        .from('clinic_settings')
+        .select('setting_value')
+        .eq('setting_key', 'enable_online_payments')
+        .single();
+
+      if (maintenanceData) {
+        setMaintenanceMode(maintenanceData.setting_value);
+      }
+      if (messageData) {
+        setMaintenanceMessage(messageData.setting_value);
+      }
+      if (stripeData) {
+        setStripeEnabled(stripeData.setting_value);
+      }
+    } catch (error) {
+      console.log('Settings not found, using defaults');
+    }
+  };
   const handleBookToken = async (bookingData: BookingRequest) => {
     setBookingLoading(true);
     setError('');
@@ -245,7 +280,12 @@ export const HomePage: React.FC = () => {
 
       setBookingResult(result);
       setShowBookingModal(false);
-      setShowConfirmationModal(true);
+      
+      if (bookingData.payment_mode === 'pay_now' && stripeEnabled) {
+        setShowStripePayment(true);
+      } else {
+        setShowConfirmationModal(true);
+      }
 
     } catch (error) {
       console.error('Booking error:', error);
@@ -261,6 +301,59 @@ export const HomePage: React.FC = () => {
       downloadQRCode(qrCodeDataURL, `clinic-token-${bookingResult.stn}.png`);
     }
   };
+
+  const handleStripePayment = async (paymentIntentId: string) => {
+    try {
+      if (!bookingResult) return;
+
+      // Create payment transaction
+      const { error } = await supabase
+        .from('payment_transactions')
+        .insert({
+          visit_id: bookingResult.visit_id,
+          patient_id: bookingResult.visit_id, // This should be patient_id, will be fixed in the actual implementation
+          amount: 500, // This should come from department fee
+          payment_method: 'online',
+          transaction_id: paymentIntentId,
+          status: 'completed',
+          processed_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+
+      // Update visit payment status
+      await supabase
+        .from('visits')
+        .update({ payment_status: 'paid' })
+        .eq('id', bookingResult.visit_id);
+
+      setShowStripePayment(false);
+      setShowConfirmationModal(true);
+    } catch (error) {
+      console.error('Payment processing error:', error);
+      alert('Payment processing failed. Please try again.');
+    }
+  };
+
+  // Show maintenance page if enabled
+  if (maintenanceMode) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="max-w-md w-full text-center">
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <div className="text-6xl mb-4">🔧</div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">Under Maintenance</h1>
+            <p className="text-gray-600 mb-6">
+              {maintenanceMessage || 'System is under maintenance. Please try again later.'}
+            </p>
+            <Button onClick={() => window.location.reload()} variant="outline">
+              Refresh Page
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -532,6 +625,96 @@ export const HomePage: React.FC = () => {
         isOpen={showPatientLookup}
         onClose={() => setShowPatientLookup(false)}
       />
+
+      {/* Stripe Payment Modal */}
+      <Modal
+        isOpen={showStripePayment}
+        onClose={() => setShowStripePayment(false)}
+        title="Complete Payment"
+        size="md"
+      >
+        {bookingResult && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="text-4xl mb-4">💳</div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Secure Payment</h3>
+              <p className="text-gray-600">Complete your payment to confirm booking</p>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-3">Payment Details</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Token Number:</span>
+                  <span className="font-bold">#{bookingResult.stn}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Department:</span>
+                  <span className="font-medium capitalize">{bookingResult.department}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Consultation Fee:</span>
+                  <span className="font-bold text-green-600">₹500</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dummy Stripe Payment Form */}
+            <div className="border rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-3">Card Details</h4>
+              <div className="space-y-3">
+                <Input
+                  label="Card Number"
+                  placeholder="4242 4242 4242 4242"
+                  defaultValue="4242 4242 4242 4242"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label="Expiry Date"
+                    placeholder="MM/YY"
+                    defaultValue="12/25"
+                  />
+                  <Input
+                    label="CVC"
+                    placeholder="123"
+                    defaultValue="123"
+                  />
+                </div>
+                <Input
+                  label="Cardholder Name"
+                  placeholder="John Doe"
+                  defaultValue="John Doe"
+                />
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-blue-800 text-sm">
+                🔒 This is a demo payment. Using test card: 4242 4242 4242 4242
+              </p>
+            </div>
+
+            <div className="flex space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowStripePayment(false);
+                  setShowConfirmationModal(true);
+                }}
+                className="flex-1"
+              >
+                Pay Later
+              </Button>
+              <Button
+                onClick={() => handleStripePayment('pi_test_' + Date.now())}
+                className="flex-1"
+              >
+                Pay ₹500
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

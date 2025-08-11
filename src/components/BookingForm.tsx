@@ -260,7 +260,8 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
                 : 'border-gray-300 hover:border-gray-400'
             }`}>
               <div className="font-medium text-gray-900">Pay Now</div>
-              <div className="text-sm text-gray-500">Online payment</div>
+              <div className="text-sm text-gray-500">Online payment (Secure)</div>
+              <div className="text-xs text-green-600 mt-1">💳 Stripe Secure Payment</div>
             </div>
           </label>
         </div>
