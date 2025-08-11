@@ -221,6 +221,7 @@ export const AdminPage: React.FC = () => {
 
   const processPayment = async (visitId: string, amount: number, method: string = 'cash') => {
     try {
+      setError('');
       const visit = visits.find(v => v.id === visitId);
       if (!visit) {
         throw new Error('Visit not found');
@@ -260,8 +261,9 @@ export const AdminPage: React.FC = () => {
 
       setSuccess(`Payment of ₹${amount} processed successfully`);
       refetch();
-      setSelectedVisit(null);
-      setShowVisitModal(false);
+      setShowPaymentModal(false);
+      setPaymentAmount('');
+      setPaymentMethod('cash');
     } catch (error: any) {
       console.error('Error processing payment:', error);
       setError(error.message || 'Failed to process payment');
@@ -718,14 +720,28 @@ export const AdminPage: React.FC = () => {
                           {visit.payment_status === 'pay_at_clinic' && (
                             <Button
                               size="sm"
-                              variant="secondary"
+                              variant="outline"
                               onClick={async () => {
                                 setSelectedVisit(visit);
-                                setPaymentAmount('500');
+                                // Get department fee
+                                const dept = departmentStats.find(d => d.department === visit.department);
+                                setPaymentAmount((dept?.consultation_fee || 500).toString());
                                 setShowPaymentModal(true);
                               }}
                             >
                               <CreditCard className="h-4 w-4" />
+                            </Button>
+                          )}
+                          
+                          {visit.payment_status === 'pending' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={async () => {
+                                await updatePaymentStatus(visit.id, 'paid');
+                              }}
+                            >
+                              <CreditCard className="h-4 w-4 mr-1" />
                               Mark Paid
                             </Button>
                           )}
@@ -884,13 +900,29 @@ export const AdminPage: React.FC = () => {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    setPaymentAmount('500');
+                    // Get department fee
+                    const dept = departmentStats.find(d => d.department === selectedVisit.department);
+                    setPaymentAmount((dept?.consultation_fee || 500).toString());
                     setShowPaymentModal(true);
                   }}
                   className="flex-1"
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
                   Process Payment
+                </Button>
+              )}
+              
+              {selectedVisit.payment_status === 'pending' && (
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    await updatePaymentStatus(selectedVisit.id, 'paid');
+                    setShowVisitModal(false);
+                  }}
+                  className="flex-1"
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Mark as Paid
                 </Button>
               )}
             </div>
@@ -973,9 +1005,6 @@ export const AdminPage: React.FC = () => {
                   }
                   setError('');
                   await processPayment(selectedVisit.id, parseFloat(paymentAmount), paymentMethod);
-                  setShowPaymentModal(false);
-                  setPaymentAmount('');
-                  setPaymentMethod('cash');
                 }}
                 className="flex-1"
               >

@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { generateUID } from '../lib/utils';
 import { generateQRCode, QRPayload, downloadQRCode } from '../lib/qr';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
+import { createPaymentIntent, confirmPayment } from '../lib/stripe';
 
 export const HomePage: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -27,6 +28,8 @@ export const HomePage: React.FC = () => {
   const [maintenanceMessage, setMaintenanceMessage] = useState<string>('');
   const [stripeEnabled, setStripeEnabled] = useState<boolean>(false);
   const [showStripePayment, setShowStripePayment] = useState<boolean>(false);
+  const [paymentLoading, setPaymentLoading] = useState<boolean>(false);
+  const [paymentError, setPaymentError] = useState<string>('');
 
   // Real-time updates
   useRealTimeUpdates(() => {
@@ -295,7 +298,7 @@ export const HomePage: React.FC = () => {
     } catch (error) {
       console.error('Booking error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to book token. Please try again.';
-      alert(errorMessage);
+      setError(errorMessage);
     } finally {
       setBookingLoading(false);
     }
@@ -307,36 +310,75 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  const handleStripePayment = async (paymentIntentId: string) => {
+  const handleStripePayment = async () => {
+    if (!bookingResult) return;
+    
+    setPaymentLoading(true);
+    setPaymentError('');
+    
     try {
-      if (!bookingResult) return;
+      // Get department fee
+      const { data: department } = await supabase
+        .from('departments')
+        .select('consultation_fee')
+        .eq('name', bookingResult.department)
+        .single();
+      
+      const amount = department?.consultation_fee || 500;
+      
+      // Create payment intent
+      const paymentIntent = await createPaymentIntent(amount, 'inr', {
+        visit_id: bookingResult.visit_id,
+        patient_uid: bookingResult.uid,
+        department: bookingResult.department
+      });
+      
+      // For demo purposes, simulate successful payment
+      const paymentResult = await confirmPayment(paymentIntent.client_secret, {
+        card: {
+          number: '4242424242424242',
+          exp_month: 12,
+          exp_year: 2025,
+          cvc: '123'
+        }
+      });
+      
+      if (paymentResult.error) {
+        throw new Error(paymentResult.error.message);
+      }
 
       // Create payment transaction
-      const { error } = await supabase
+      const { error: transactionError } = await supabase
         .from('payment_transactions')
         .insert({
           visit_id: bookingResult.visit_id,
-          patient_id: bookingResult.visit_id, // This should be patient_id, will be fixed in the actual implementation
-          amount: 500, // This should come from department fee
+          patient_id: bookingResult.visit_id, // Note: This should ideally be patient_id
+          amount: amount,
           payment_method: 'online',
-          transaction_id: paymentIntentId,
+          transaction_id: paymentResult.paymentIntent.id,
           status: 'completed',
+          gateway_response: paymentResult.paymentIntent,
           processed_at: new Date().toISOString()
         });
 
-      if (error) throw error;
+      if (transactionError) throw transactionError;
 
       // Update visit payment status
-      await supabase
+      const { error: visitError } = await supabase
         .from('visits')
         .update({ payment_status: 'paid' })
         .eq('id', bookingResult.visit_id);
+      
+      if (visitError) throw visitError;
 
       setShowStripePayment(false);
       setShowConfirmationModal(true);
+      
     } catch (error) {
       console.error('Payment processing error:', error);
-      alert('Payment processing failed. Please try again.');
+      setPaymentError(error instanceof Error ? error.message : 'Payment processing failed. Please try again.');
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
@@ -699,6 +741,12 @@ export const HomePage: React.FC = () => {
               </p>
             </div>
 
+            {paymentError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 text-sm">{paymentError}</p>
+              </div>
+            )}
+
             <div className="flex space-x-3">
               <Button
                 variant="outline"
@@ -707,14 +755,16 @@ export const HomePage: React.FC = () => {
                   setShowConfirmationModal(true);
                 }}
                 className="flex-1"
+                disabled={paymentLoading}
               >
                 Pay Later
               </Button>
               <Button
-                onClick={() => handleStripePayment('pi_test_' + Date.now())}
+                onClick={handleStripePayment}
                 className="flex-1"
+                loading={paymentLoading}
               >
-                Pay ₹500
+                Pay ₹{bookingResult && departmentStats.find(d => d.department === bookingResult.department)?.consultation_fee || 500}
               </Button>
             </div>
           </div>
