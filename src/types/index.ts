@@ -188,3 +188,61 @@ export interface Analytics {
     patient_satisfaction: number;
   };
 }
+
+export interface DoctorSession {
+  id: string;
+  doctor_id: string;
+  session_status: 'active' | 'inactive' | 'break';
+  room_name: string;
+  started_at: string;
+  ended_at?: string;
+  current_patient_id?: string;
+  created_at: string;
+  updated_at: string;
+  doctor?: Doctor;
+  current_patient?: Patient;
+}
+
+export interface Consultation {
+  id: string;
+  doctor_id: string;
+  patient_id: string;
+  visit_id: string;
+  session_id: string;
+  status: 'waiting' | 'in_progress' | 'completed' | 'cancelled';
+  started_at: string;
+  completed_at?: string;
+  duration_minutes?: number;
+  priority_level: 'low' | 'normal' | 'high' | 'urgent';
+  created_at: string;
+  updated_at: string;
+  doctor?: Doctor;
+  patient?: Patient;
+  visit?: Visit;
+  consultation_notes?: ConsultationNote[];
+  voice_transcriptions?: VoiceTranscription[];
+}
+
+export interface ConsultationNote {
+  id: string;
+  consultation_id: string;
+  doctor_id: string;
+  note_type: 'general' | 'symptoms' | 'diagnosis' | 'prescription' | 'follow_up' | 'voice_note';
+  content: string;
+  is_voice_generated: boolean;
+  voice_confidence_score?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VoiceTranscription {
+  id: string;
+  consultation_id: string;
+  doctor_id: string;
+  original_audio_url?: string;
+  transcribed_text: string;
+  confidence_score?: number;
+  language_code: string;
+  processing_status: 'processing' | 'completed' | 'failed';
+  created_at: string;
+}

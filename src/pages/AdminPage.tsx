@@ -12,7 +12,8 @@ import {
   BarChart3,
   UserSearch,
   TrendingUp,
-  DollarSign
+  DollarSign,
+  Stethoscope
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -441,6 +442,14 @@ export const AdminPage: React.FC = () => {
               <Button variant="outline" onClick={() => signOut()} size="sm">
                 <LogOut className="mr-2 h-4 w-4" />
                 {t('sign_out')}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => window.open('/doctor', '_blank')}
+                size="sm"
+              >
+                <Stethoscope className="mr-2 h-4 w-4" />
+                Doctor Room
               </Button>
             </div>
           </div>
