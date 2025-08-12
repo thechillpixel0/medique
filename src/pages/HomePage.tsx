@@ -150,9 +150,10 @@ export const HomePage: React.FC = () => {
       const { data: refreshData } = await supabase
         .from('clinic_settings')
         .select('setting_value')
-        .eq('setting_key', 'refresh_interval')
-        .single();
-      if (refreshData) setRefreshInterval(refreshData.setting_value);
+        .eq('setting_key', 'auto_refresh_interval');
+      if (refreshData && refreshData.length > 0) {
+        setRefreshInterval(refreshData[0].setting_value);
+      }
     } catch (error) {
       console.log('Settings not found, using defaults');
     }
