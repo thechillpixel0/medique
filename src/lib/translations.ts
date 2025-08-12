@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Multi-language support for Hindi and English
 export interface Translations {
   [key: string]: {
