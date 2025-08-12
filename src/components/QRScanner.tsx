@@ -58,10 +58,24 @@ export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan })
   const handleClose = () => {
     if (scannerRef.current) {
       scannerRef.current.clear();
+      scannerRef.current = null;
     }
     setIsScanning(false);
     setError('');
     onClose();
+  };
+
+  const handleManualEntry = () => {
+    const manualCode = prompt('Enter QR code data manually:');
+    if (manualCode) {
+      const payload = parseQRCode(manualCode);
+      if (payload) {
+        onScan(payload);
+        onClose();
+      } else {
+        setError('Invalid QR code format. Please try again.');
+      }
+    }
   };
 
   return (
@@ -74,6 +88,13 @@ export const QRScanner: React.FC<QRScannerProps> = ({ isOpen, onClose, onScan })
             </p>
           </div>
         )}
+        
+        <div className="text-center">
+          <Button variant="outline" onClick={handleManualEntry} size="sm">
+            Enter Code Manually
+          </Button>
+          <p className="text-xs text-gray-500 mt-1">Use this if camera scanning fails</p>
+        </div>
         
         <div id="qr-reader" className="w-full"></div>
         

@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
+import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { QueueWidget } from '../components/QueueWidget';
 import { Queue2DVisualization } from '../components/Queue2DVisualization';
 import { BookingForm } from '../components/BookingForm';
 import { PatientLookup } from '../components/PatientLookup';
+import { useTranslation } from '../lib/translations';
 import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
 import { supabase } from '../lib/supabase';
 import { generateUID } from '../lib/utils';
@@ -16,6 +18,7 @@ import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import { createPaymentIntent, confirmPayment } from '../lib/stripe';
 
 export const HomePage: React.FC = () => {
+  const { t } = useTranslation();
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [showPatientLookup, setShowPatientLookup] = useState(false);
@@ -29,12 +32,22 @@ export const HomePage: React.FC = () => {
   const [stripeEnabled, setStripeEnabled] = useState<boolean>(false);
   const [showStripePayment, setShowStripePayment] = useState<boolean>(false);
   const [paymentLoading, setPaymentLoading] = useState<boolean>(false);
+  const [refreshInterval, setRefreshInterval] = useState<number>(15);
   const [paymentError, setPaymentError] = useState<string>('');
 
   // Real-time updates
   useRealTimeUpdates(() => {
     fetchDepartmentStats();
   });
+
+  // Auto-refresh with configurable interval
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDepartmentStats();
+    }, refreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [refreshInterval]);
 
   const fetchDepartmentStats = async () => {
     try {
@@ -132,6 +145,14 @@ export const HomePage: React.FC = () => {
       if (stripeData) {
         setStripeEnabled(stripeData.setting_value);
       }
+
+      // Get refresh interval
+      const { data: refreshData } = await supabase
+        .from('clinic_settings')
+        .select('setting_value')
+        .eq('setting_key', 'refresh_interval')
+        .single();
+      if (refreshData) setRefreshInterval(refreshData.setting_value);
     } catch (error) {
       console.log('Settings not found, using defaults');
     }
@@ -385,7 +406,7 @@ export const HomePage: React.FC = () => {
   // Show maintenance page if enabled
   if (maintenanceMode) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4" dir={t('dir')}>
         <div className="max-w-md w-full text-center">
           <div className="bg-white rounded-lg shadow-lg p-8">
             <div className="text-6xl mb-4">🔧</div>
@@ -403,19 +424,22 @@ export const HomePage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50" dir={t('dir')}>
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Heart className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-2xl font-bold text-gray-900">MediQueue</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{t('clinic_name')}</h1>
             </div>
-            <Button variant="outline" onClick={() => setShowPatientLookup(true)}>
-              <Search className="h-4 w-4 mr-2" />
-              Track by UID
-            </Button>
+            <div className="flex items-center space-x-4">
+              <LanguageSwitcher />
+              <Button variant="outline" onClick={() => setShowPatientLookup(true)}>
+                <Search className="h-4 w-4 mr-2" />
+                {t('track_by_uid')}
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -436,11 +460,10 @@ export const HomePage: React.FC = () => {
         
         <div className="text-center mb-12">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-            Skip the Wait,
-            <span className="text-blue-600"> Book Your Token</span>
+            {t('skip_wait_book_token')}
           </h2>
           <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Get your appointment token instantly, track the queue in real-time, and arrive exactly when it's your turn.
+            {t('get_appointment_instantly')}
           </p>
           
           <Button
@@ -449,7 +472,7 @@ export const HomePage: React.FC = () => {
             className="mb-8 px-8 py-4 text-lg"
           >
             <Calendar className="mr-2 h-6 w-6" />
-            Book Your Token Now
+            {t('book_token_now')}
           </Button>
         </div>
 
@@ -474,9 +497,9 @@ export const HomePage: React.FC = () => {
           <Card className="text-center">
             <CardContent className="pt-6">
               <Clock className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Real-Time Updates</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">{t('real_time_updates')}</h3>
               <p className="text-gray-600">
-                Get live updates on queue status and your estimated wait time.
+                {t('real_time_desc')}
               </p>
             </CardContent>
           </Card>
@@ -484,9 +507,9 @@ export const HomePage: React.FC = () => {
           <Card className="text-center">
             <CardContent className="pt-6">
               <QrCode className="h-12 w-12 text-green-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">QR Code Check-in</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">{t('qr_check_in')}</h3>
               <p className="text-gray-600">
-                Quick and contactless check-in with your personal QR code.
+                {t('qr_check_in_desc')}
               </p>
             </CardContent>
           </Card>
@@ -494,9 +517,9 @@ export const HomePage: React.FC = () => {
           <Card className="text-center">
             <CardContent className="pt-6">
               <Users className="h-12 w-12 text-purple-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Multiple Departments</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">{t('multiple_departments')}</h3>
               <p className="text-gray-600">
-                Book tokens for different departments with specialized queues.
+                {t('multiple_departments_desc')}
               </p>
             </CardContent>
           </Card>
@@ -549,7 +572,7 @@ export const HomePage: React.FC = () => {
       <Modal
         isOpen={showBookingModal}
         onClose={() => setShowBookingModal(false)}
-        title="Book Your Token"
+        title={t('book_your_token')}
         size="lg"
       >
         <BookingForm onSubmit={handleBookToken} loading={bookingLoading} />
@@ -559,15 +582,15 @@ export const HomePage: React.FC = () => {
       <Modal
         isOpen={showConfirmationModal}
         onClose={() => setShowConfirmationModal(false)}
-        title="Booking Confirmed!"
+        title={t('booking_confirmed')}
         size="lg"
       >
         {bookingResult && (
           <div className="space-y-6">
             <div className="text-center">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Token Booked Successfully!</h3>
-              <p className="text-gray-600">Your appointment has been confirmed.</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">{t('booking_confirmed')}</h3>
+              <p className="text-gray-600">{t('appointment_confirmed')}</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -642,12 +665,12 @@ export const HomePage: React.FC = () => {
             </div>
 
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <h5 className="font-semibold text-yellow-800 mb-2">Important Instructions:</h5>
+              <h5 className="font-semibold text-yellow-800 mb-2">{t('important_instructions')}</h5>
               <ul className="text-sm text-yellow-700 space-y-1">
-                <li>• Save or download your QR code for check-in</li>
-                <li>• Arrive at the clinic when your token is close to being served</li>
-                <li>• Show your QR code to the reception for quick check-in</li>
-                <li>• Track the live queue status on this page</li>
+                <li>• {t('save_qr_code')}</li>
+                <li>• {t('arrive_on_time')}</li>
+                <li>• {t('show_qr_reception')}</li>
+                <li>• {t('track_live_queue')}</li>
               </ul>
             </div>
 

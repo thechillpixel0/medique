@@ -21,23 +21,29 @@ import { Card, CardHeader, CardContent } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { QRScanner } from '../components/QRScanner';
 import { PatientLookup } from '../components/PatientLookup';
+import { PatientDetailModal } from '../components/PatientDetailModal';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useAuth } from '../hooks/useAuth';
 import { useQueue } from '../hooks/useQueue';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
+import { useTranslation } from '../lib/translations';
 import { supabase } from '../lib/supabase';
 import { Visit, Patient, PaymentTransaction } from '../types';
 import { formatTime, formatRelativeTime, getStatusColor, getPaymentStatusColor } from '../lib/utils';
 import { QRPayload, parseQRCode } from '../lib/qr';
 
 export const AdminPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user, signOut, loading: authLoading } = useAuth();
   const { visits, queueStatus, loading: queueLoading, refetch } = useQueue();
   const { analytics, loading: analyticsLoading } = useAnalytics();
   
   const [showScanner, setShowScanner] = useState(false);
   const [showPatientLookup, setShowPatientLookup] = useState(false);
+  const [showPatientDetail, setShowPatientDetail] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showVisitModal, setShowVisitModal] = useState(false);
@@ -52,7 +58,7 @@ export const AdminPage: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(30);
+  const [refreshInterval, setRefreshInterval] = useState(15);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -99,7 +105,7 @@ export const AdminPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <h1 className="text-2xl font-bold text-center text-gray-900">Admin Login</h1>
+            <h1 className="text-2xl font-bold text-center text-gray-900">{t('admin_login')}</h1>
             <p className="text-center text-gray-600 text-sm mt-2">
               Use your Supabase admin credentials to access the dashboard
             </p>
@@ -159,7 +165,7 @@ export const AdminPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">{t('loading')}</p>
         </div>
       </div>
     );
@@ -168,26 +174,37 @@ export const AdminPage: React.FC = () => {
   const handleQRScan = async (payload: QRPayload) => {
     try {
       // Find the visit by QR payload
-      const { data: visit, error } = await supabase
+      const { data: visits, error } = await supabase
         .from('visits')
         .select(`
           *,
           patient:patients(*),
           doctor:doctors(*)
         `)
-        .contains('qr_payload', JSON.stringify(payload))
-        .single();
+        .eq('clinic_id', payload.clinic)
+        .eq('stn', payload.stn)
+        .eq('visit_date', payload.visit_date);
 
       if (error) {
         console.error('QR scan error:', error);
-        alert('Visit not found or QR code is invalid');
+        alert(t('visit_not_found'));
+        return;
+      }
+
+      const visit = visits?.find(v => {
+        const qrData = JSON.parse(v.qr_payload);
+        return qrData.uid === payload.uid;
+      });
+
+      if (!visit) {
+        alert(t('visit_not_found'));
         return;
       }
 
       // Check if visit is from today
       const today = new Date().toISOString().split('T')[0];
       if (visit.visit_date !== today) {
-        alert('This QR code is not valid for today');
+        alert(t('qr_not_valid_today'));
         return;
       }
 
@@ -203,7 +220,7 @@ export const AdminPage: React.FC = () => {
 
         if (updateError) {
           console.error('Error updating visit:', updateError);
-          alert('Failed to check in patient');
+          alert(t('check_in_failed'));
           return;
         } else {
           refetch();
@@ -215,7 +232,7 @@ export const AdminPage: React.FC = () => {
       setShowScanner(false);
     } catch (error) {
       console.error('Error handling QR scan:', error);
-      alert('Error processing QR code');
+      alert(t('qr_processing_error'));
     }
   };
 
@@ -382,9 +399,10 @@ export const AdminPage: React.FC = () => {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Users className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{t('admin_dashboard')}</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <LanguageSwitcher />
               <div className="flex items-center space-x-2 text-sm">
                 <input
                   type="checkbox"
@@ -394,7 +412,7 @@ export const AdminPage: React.FC = () => {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label htmlFor="auto-refresh" className="text-gray-600">
-                  Auto-refresh ({refreshInterval}s)
+                  {t('auto_refresh')} ({refreshInterval}s)
                 </label>
               </div>
               <Button 
@@ -402,7 +420,7 @@ export const AdminPage: React.FC = () => {
                 size="sm"
               >
                 <QrCode className="mr-2 h-4 w-4" />
-                Scan QR
+                {t('scan_qr')}
               </Button>
               <Button 
                 onClick={() => setShowPatientLookup(true)}
@@ -410,7 +428,7 @@ export const AdminPage: React.FC = () => {
                 size="sm"
               >
                 <UserSearch className="mr-2 h-4 w-4" />
-                Patient Lookup
+                {t('patient_lookup')}
               </Button>
               <Button 
                 onClick={() => setShowSettings(true)}
@@ -418,11 +436,11 @@ export const AdminPage: React.FC = () => {
                 size="sm"
               >
                 <Settings className="mr-2 h-4 w-4" />
-                Settings
+                {t('settings')}
               </Button>
               <Button variant="outline" onClick={() => signOut()} size="sm">
                 <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
+                {t('sign_out')}
               </Button>
             </div>
           </div>
@@ -439,7 +457,7 @@ export const AdminPage: React.FC = () => {
                   <Clock className="h-6 w-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Now Serving</p>
+                  <p className="text-sm font-medium text-gray-600">{t('now_serving')}</p>
                   <p className="text-2xl font-bold text-gray-900">{queueStatus.now_serving}</p>
                 </div>
               </div>
@@ -453,7 +471,7 @@ export const AdminPage: React.FC = () => {
                   <Users className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Waiting</p>
+                  <p className="text-sm font-medium text-gray-600">{t('total_waiting')}</p>
                   <p className="text-2xl font-bold text-gray-900">{queueStatus.total_waiting}</p>
                 </div>
               </div>
@@ -467,7 +485,7 @@ export const AdminPage: React.FC = () => {
                   <CheckCircle className="h-6 w-6 text-green-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Completed Today</p>
+                  <p className="text-sm font-medium text-gray-600">{t('completed_today')}</p>
                   <p className="text-2xl font-bold text-gray-900">
                     {visits.filter(v => v.status === 'completed').length}
                   </p>
@@ -483,7 +501,7 @@ export const AdminPage: React.FC = () => {
                   <Users className="h-6 w-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Visits</p>
+                  <p className="text-sm font-medium text-gray-600">{t('total_visits')}</p>
                   <p className="text-2xl font-bold text-gray-900">{visits.length}</p>
                 </div>
               </div>
@@ -497,7 +515,7 @@ export const AdminPage: React.FC = () => {
                   <DollarSign className="h-6 w-6 text-green-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Today Revenue</p>
+                  <p className="text-sm font-medium text-gray-600">{t('today_revenue')}</p>
                   <p className="text-2xl font-bold text-gray-900">
                     ₹{analytics?.today.revenue.toFixed(0) || 0}
                   </p>
@@ -513,7 +531,7 @@ export const AdminPage: React.FC = () => {
                   <TrendingUp className="h-6 w-6 text-purple-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Avg Wait</p>
+                  <p className="text-sm font-medium text-gray-600">{t('avg_wait')}</p>
                   <p className="text-2xl font-bold text-gray-900">
                     {analytics?.today.average_wait_time || 15}m
                   </p>
@@ -605,7 +623,7 @@ export const AdminPage: React.FC = () => {
         {/* Queue Table */}
         <Card>
           <CardHeader>
-            <h2 className="text-xl font-semibold text-gray-900">Today's Queue</h2>
+            <h2 className="text-xl font-semibold text-gray-900">{t('todays_queue')}</h2>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -613,25 +631,25 @@ export const AdminPage: React.FC = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Token
+                      {t('token')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Patient
+                      {t('patient')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Department
+                      {t('department')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
+                      {t('status')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Payment
+                      {t('payment')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Time
+                      {t('time')}
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
+                      {t('actions')}
                     </th>
                   </tr>
                 </thead>
@@ -645,6 +663,15 @@ export const AdminPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
                           {visit.patient?.name}
+                          <button
+                            onClick={() => {
+                              setSelectedPatientId(visit.patient_id);
+                              setShowPatientDetail(true);
+                            }}
+                            className="ml-2 text-blue-600 hover:text-blue-800 text-xs underline"
+                          >
+                            View Profile
+                          </button>
                         </div>
                         <div className="text-sm text-gray-500">
                           Age: {visit.patient?.age} | {visit.patient?.phone}
@@ -689,7 +716,7 @@ export const AdminPage: React.FC = () => {
                                 await updateVisitStatus(visit.id, 'checked_in');
                               }}
                             >
-                              Check In
+                              {t('check_in')}
                             </Button>
                           )}
                           
@@ -701,7 +728,7 @@ export const AdminPage: React.FC = () => {
                                 await updateVisitStatus(visit.id, 'in_service');
                               }}
                             >
-                              Start Service
+                              {t('start_service')}
                             </Button>
                           )}
                           
@@ -713,7 +740,7 @@ export const AdminPage: React.FC = () => {
                                 await updateVisitStatus(visit.id, 'completed');
                               }}
                             >
-                              Complete
+                              {t('complete')}
                             </Button>
                           )}
 
@@ -724,7 +751,7 @@ export const AdminPage: React.FC = () => {
                               onClick={async () => {
                                 setSelectedVisit(visit);
                                 // Get department fee
-                                const dept = departmentStats.find(d => d.department === visit.department);
+                                const { data: dept } = await supabase.from('departments').select('consultation_fee').eq('name', visit.department).single();
                                 setPaymentAmount((dept?.consultation_fee || 500).toString());
                                 setShowPaymentModal(true);
                               }}
@@ -742,7 +769,7 @@ export const AdminPage: React.FC = () => {
                               }}
                             >
                               <CreditCard className="h-4 w-4 mr-1" />
-                              Mark Paid
+                              {t('mark_paid')}
                             </Button>
                           )}
                         </div>
@@ -755,7 +782,7 @@ export const AdminPage: React.FC = () => {
               {filteredVisits.length === 0 && (
                 <div className="text-center py-12">
                   <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">No visits found</p>
+                  <p className="text-gray-500">{t('no_visits_found')}</p>
                 </div>
               )}
             </div>
@@ -774,6 +801,13 @@ export const AdminPage: React.FC = () => {
       <PatientLookup
         isOpen={showPatientLookup}
         onClose={() => setShowPatientLookup(false)}
+      />
+
+      {/* Patient Detail Modal */}
+      <PatientDetailModal
+        isOpen={showPatientDetail}
+        onClose={() => setShowPatientDetail(false)}
+        patientId={selectedPatientId}
       />
 
       {/* Settings Panel */}

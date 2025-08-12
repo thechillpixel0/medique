@@ -33,13 +33,36 @@ export const generateQRCode = async (payload: QRPayload): Promise<string> => {
 
 export const parseQRCode = (qrData: string): QRPayload | null => {
   try {
+    // Handle different QR code formats
+    let dataToProcess = qrData;
+    
+    // If it's a URL or contains our prefix, extract the data
+    if (qrData.includes('CLINIC_TOKEN:')) {
+      dataToProcess = qrData;
+    } else if (qrData.startsWith('http')) {
+      // Handle URL-based QR codes
+      const url = new URL(qrData);
+      const tokenData = url.searchParams.get('token');
+      if (tokenData) {
+        dataToProcess = `CLINIC_TOKEN:${tokenData}`;
+      } else {
+        return null;
+      }
+    }
+    
     if (!qrData.startsWith('CLINIC_TOKEN:')) {
       return null;
     }
     
-    const base64Data = qrData.replace('CLINIC_TOKEN:', '');
+    const base64Data = dataToProcess.replace('CLINIC_TOKEN:', '');
     const data = atob(base64Data);
     const payload = JSON.parse(data) as QRPayload;
+    
+    // Validate payload structure
+    if (!payload.clinic || !payload.uid || !payload.stn || !payload.visit_date) {
+      console.error('Invalid QR payload structure:', payload);
+      return null;
+    }
     
     return payload;
   } catch (error) {
