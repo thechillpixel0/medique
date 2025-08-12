@@ -52,6 +52,13 @@ export const HomePage: React.FC = () => {
   const fetchDepartmentStats = async () => {
     try {
       setError('');
+      
+      // Check if Supabase is properly configured
+      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        setError('Supabase is not configured. Please set up your environment variables.');
+        return;
+      }
+      
       const today = new Date().toISOString().split('T')[0];
       
       const { data: departments } = await supabase
@@ -107,7 +114,19 @@ export const HomePage: React.FC = () => {
       setDepartmentStats(stats);
     } catch (error) {
       console.error('Error fetching department stats:', error);
-      setError('Failed to load department information. Please refresh the page.');
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch') || error.message.includes('fetch')) {
+          setError('Unable to connect to the database. Please check your internet connection and Supabase configuration.');
+        } else if (error.message.includes('Supabase configuration')) {
+          setError('Database configuration error. Please set up your Supabase environment variables in the .env file.');
+        } else {
+          setError(`Database error: ${error.message}`);
+        }
+      } else {
+        setError('Failed to load department information. Please refresh the page.');
+      }
     }
   };
 
@@ -454,6 +473,17 @@ export const HomePage: React.FC = () => {
               <div>
                 <h3 className="text-red-800 font-medium">System Notice</h3>
                 <p className="text-red-700 text-sm mt-1">{error}</p>
+                {error.includes('Supabase') && (
+                  <div className="mt-3 text-sm text-red-600">
+                    <p className="font-medium">To fix this issue:</p>
+                    <ol className="list-decimal list-inside mt-1 space-y-1">
+                      <li>Create a <code className="bg-red-100 px-1 rounded">.env</code> file in your project root</li>
+                      <li>Copy the contents from <code className="bg-red-100 px-1 rounded">.env.example</code></li>
+                      <li>Replace placeholder values with your actual Supabase credentials</li>
+                      <li>Restart the development server</li>
+                    </ol>
+                  </div>
+                )}
               </div>
             </div>
           </div>
