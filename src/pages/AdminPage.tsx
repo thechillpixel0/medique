@@ -174,6 +174,7 @@ export const AdminPage: React.FC = () => {
 
   const handleQRScan = async (payload: QRPayload) => {
     try {
+      setError('');
       // Find the visit by QR payload
       const { data: visits, error } = await supabase
         .from('visits')
@@ -182,30 +183,33 @@ export const AdminPage: React.FC = () => {
           patient:patients(*),
           doctor:doctors(*)
         `)
-        .eq('clinic_id', payload.clinic)
         .eq('stn', payload.stn)
         .eq('visit_date', payload.visit_date);
 
       if (error) {
         console.error('QR scan error:', error);
-        alert(t('visit_not_found'));
+        setError('Error scanning QR code. Please try again.');
         return;
       }
 
       const visit = visits?.find(v => {
-        const qrData = JSON.parse(v.qr_payload);
-        return qrData.uid === payload.uid;
+        try {
+          const qrData = JSON.parse(v.qr_payload);
+          return qrData.uid === payload.uid;
+        } catch {
+          return false;
+        }
       });
 
       if (!visit) {
-        alert(t('visit_not_found'));
+        setError('Visit not found. Please check the QR code.');
         return;
       }
 
       // Check if visit is from today
       const today = new Date().toISOString().split('T')[0];
       if (visit.visit_date !== today) {
-        alert(t('qr_not_valid_today'));
+        setError('This QR code is not valid for today.');
         return;
       }
 
@@ -221,10 +225,11 @@ export const AdminPage: React.FC = () => {
 
         if (updateError) {
           console.error('Error updating visit:', updateError);
-          alert(t('check_in_failed'));
+          setError('Failed to check in patient. Please try again.');
           return;
         } else {
           refetch();
+          setSuccess('Patient checked in successfully!');
         }
       }
 
@@ -233,7 +238,7 @@ export const AdminPage: React.FC = () => {
       setShowScanner(false);
     } catch (error) {
       console.error('Error handling QR scan:', error);
-      alert(t('qr_processing_error'));
+      setError('Error processing QR code. Please try again.');
     }
   };
 

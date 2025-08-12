@@ -65,14 +65,15 @@ export const DoctorRoomPage: React.FC = () => {
     if (!user) return;
     
     try {
+      setError('');
       // For demo purposes, we'll create a doctor profile if it doesn't exist
       let { data: doctorData, error } = await supabase
         .from('doctors')
         .select('*')
-        .eq('name', user.email?.split('@')[0] || 'Doctor')
-        .single();
+        .ilike('name', `%${user.email?.split('@')[0] || 'Doctor'}%`)
+        .limit(1);
 
-      if (error && error.code === 'PGRST116') {
+      if (!doctorData || doctorData.length === 0) {
         // Create doctor profile
         const { data: newDoctor, error: createError } = await supabase
           .from('doctors')
@@ -92,14 +93,15 @@ export const DoctorRoomPage: React.FC = () => {
 
         if (createError) throw createError;
         doctorData = newDoctor;
-      } else if (error) {
-        throw error;
+      } else {
+        doctorData = doctorData[0];
       }
 
       setDoctor(doctorData);
       setRoomName(`${doctorData.name}'s Room`);
     } catch (error) {
       console.error('Error fetching doctor profile:', error);
+      setError('Failed to load doctor profile. Please try again.');
     }
   };
 

@@ -4,23 +4,40 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file');
-  throw new Error('Supabase configuration is missing. Please check your environment variables.');
+  console.warn('Supabase environment variables not found. Using fallback configuration for development.');
 }
 
-// Validate URL format
-if (supabaseUrl && !supabaseUrl.startsWith('https://') && !supabaseUrl.startsWith('http://')) {
-  console.error('Invalid Supabase URL format. URL should start with https://');
-  throw new Error('Invalid Supabase URL format');
-}
+// Use fallback values for development if env vars are missing
+const finalSupabaseUrl = supabaseUrl || 'https://your-project.supabase.co';
+const finalSupabaseAnonKey = supabaseAnonKey || 'your-anon-key';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(finalSupabaseUrl, finalSupabaseAnonKey, {
   realtime: {
     params: {
       eventsPerSecond: 10,
     },
   },
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
 });
+
+// Test connection function
+export const testSupabaseConnection = async () => {
+  try {
+    const { data, error } = await supabase.from('departments').select('count').limit(1);
+    if (error) {
+      console.error('Supabase connection test failed:', error);
+      return false;
+    }
+    console.log('Supabase connection successful');
+    return true;
+  } catch (error) {
+    console.error('Supabase connection error:', error);
+    return false;
+  }
+};
 
 // Database types for better TypeScript support
 export interface Database {

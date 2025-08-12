@@ -52,13 +52,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
         .select('*')
         .order('name');
 
-      if (settingsError && settingsError.code !== 'PGRST116') {
+      if (settingsError) {
         console.error('Settings error:', settingsError);
       }
-      if (departmentsError && departmentsError.code !== 'PGRST116') {
+      if (departmentsError) {
         console.error('Departments error:', departmentsError);
       }
-      if (doctorsError && doctorsError.code !== 'PGRST116') {
+      if (doctorsError) {
         console.error('Doctors error:', doctorsError);
       }
 
@@ -78,7 +78,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose })
 
     } catch (error: any) {
       console.error('Error fetching settings:', error);
-      setError(error.message || 'Failed to load settings');
+      setError('Failed to load settings. Please check your database connection.');
     } finally {
       setLoading(false);
     }

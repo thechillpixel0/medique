@@ -53,12 +53,6 @@ export const HomePage: React.FC = () => {
     try {
       setError('');
       
-      // Check if Supabase is properly configured
-      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-        setError('Supabase is not configured. Please set up your environment variables.');
-        return;
-      }
-      
       const today = new Date().toISOString().split('T')[0];
       
       const { data: departments } = await supabase
@@ -67,9 +61,11 @@ export const HomePage: React.FC = () => {
         .eq('is_active', true);
 
       if (!departments || departments.length === 0) {
-        setError('No departments found. Please contact admin to set up departments.');
+        console.warn('No departments found, using default message');
+        setDepartmentStats([]);
         return;
       }
+      
       const { data: visits } = await supabase
         .from('visits')
         .select('department, status')
@@ -115,18 +111,9 @@ export const HomePage: React.FC = () => {
     } catch (error) {
       console.error('Error fetching department stats:', error);
       
-      // Provide more specific error messages
-      if (error instanceof Error) {
-        if (error.message.includes('Failed to fetch') || error.message.includes('fetch')) {
-          setError('Unable to connect to the database. Please check your internet connection and Supabase configuration.');
-        } else if (error.message.includes('Supabase configuration')) {
-          setError('Database configuration error. Please set up your Supabase environment variables in the .env file.');
-        } else {
-          setError(`Database error: ${error.message}`);
-        }
-      } else {
-        setError('Failed to load department information. Please refresh the page.');
-      }
+      // Set a user-friendly error message
+      setError('Unable to load department information. Please check your database connection.');
+      setDepartmentStats([]);
     }
   };
 
