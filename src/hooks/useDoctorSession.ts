@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { DoctorSession, Consultation, Doctor } from '../types';
+import { DoctorSession, Consultation } from '../types';
 
 export const useDoctorSession = (doctorId?: string) => {
   const [session, setSession] = useState<DoctorSession | null>(null);
@@ -9,7 +9,10 @@ export const useDoctorSession = (doctorId?: string) => {
   const [error, setError] = useState<string>('');
 
   const fetchSession = async () => {
-    if (!doctorId) return;
+    if (!doctorId) {
+      setLoading(false);
+      return;
+    }
     
     try {
       setError('');
@@ -23,11 +26,15 @@ export const useDoctorSession = (doctorId?: string) => {
           current_patient:patients(*)
         `)
         .eq('doctor_id', doctorId)
-        .eq('session_status', 'active')
+        .in('session_status', ['active', 'break'])
         .order('started_at', { ascending: false })
         .limit(1);
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        console.error('Session fetch error:', sessionError);
+        setError('Failed to fetch session data');
+        return;
+      }
       
       const activeSession = sessionData?.[0] || null;
       setSession(activeSession);
@@ -46,8 +53,12 @@ export const useDoctorSession = (doctorId?: string) => {
           .eq('session_id', activeSession.id)
           .order('started_at', { ascending: false });
 
-        if (consultationError) throw consultationError;
-        setConsultations(consultationData || []);
+        if (consultationError) {
+          console.error('Consultation fetch error:', consultationError);
+          setError('Failed to fetch consultations');
+        } else {
+          setConsultations(consultationData || []);
+        }
       } else {
         setConsultations([]);
       }
@@ -74,7 +85,7 @@ export const useDoctorSession = (doctorId?: string) => {
           ended_at: new Date().toISOString()
         })
         .eq('doctor_id', doctorId)
-        .eq('session_status', 'active');
+        .in('session_status', ['active', 'break']);
 
       // Create new session
       const { data, error } = await supabase
@@ -91,7 +102,11 @@ export const useDoctorSession = (doctorId?: string) => {
         `)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error starting session:', error);
+        setError('Failed to start session');
+        return null;
+      }
       
       setSession(data);
       return data;
@@ -117,7 +132,11 @@ export const useDoctorSession = (doctorId?: string) => {
         })
         .eq('id', session.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error ending session:', error);
+        setError('Failed to end session');
+        return;
+      }
       
       setSession(null);
       setConsultations([]);
@@ -144,7 +163,12 @@ export const useDoctorSession = (doctorId?: string) => {
         `)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating session status:', error);
+        setError('Failed to update session status');
+        return;
+      }
+      
       setSession(data);
     } catch (error: any) {
       console.error('Error updating session status:', error);
@@ -156,32 +180,34 @@ export const useDoctorSession = (doctorId?: string) => {
     fetchSession();
 
     // Subscribe to real-time updates
-    const sessionSubscription = supabase
-      .channel('doctor-session-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'doctor_sessions',
-          filter: `doctor_id=eq.${doctorId}`
-        },
-        () => fetchSession()
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'consultations',
-        },
-        () => fetchSession()
-      )
-      .subscribe();
+    if (doctorId) {
+      const sessionSubscription = supabase
+        .channel('doctor-session-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'doctor_sessions',
+            filter: `doctor_id=eq.${doctorId}`
+          },
+          () => fetchSession()
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'consultations',
+          },
+          () => fetchSession()
+        )
+        .subscribe();
 
-    return () => {
-      sessionSubscription.unsubscribe();
-    };
+      return () => {
+        sessionSubscription.unsubscribe();
+      };
+    }
   }, [doctorId]);
 
   return {

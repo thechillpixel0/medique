@@ -16,23 +16,27 @@ import {
   Phone,
   Mail,
   Calendar,
-  Activity
+  Activity,
+  ChevronDown
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { VoiceNoteRecorder } from '../components/VoiceNoteRecorder';
 import { useAuth } from '../hooks/useAuth';
-import { useDoctorSession } from '../hooks/useDoctorSession';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import { supabase } from '../lib/supabase';
-import { Doctor, Patient, Consultation, ConsultationNote } from '../types';
+import { Doctor, Patient, Consultation, ConsultationNote, DoctorSession } from '../types';
 import { formatTime, formatRelativeTime } from '../lib/utils';
 
 export const DoctorRoomPage: React.FC = () => {
   const { user, signOut } = useAuth();
-  const [doctor, setDoctor] = useState<Doctor | null>(null);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
+  const [session, setSession] = useState<DoctorSession | null>(null);
+  const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [roomName, setRoomName] = useState('');
   const [showStartModal, setShowStartModal] = useState(false);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
@@ -42,43 +46,50 @@ export const DoctorRoomPage: React.FC = () => {
   const [noteType, setNoteType] = useState<'general' | 'symptoms' | 'diagnosis' | 'prescription' | 'follow_up'>('general');
   const [saving, setSaving] = useState(false);
   const [waitingPatients, setWaitingPatients] = useState<any[]>([]);
-
-  const { session, consultations, loading, error, startSession, endSession, updateSessionStatus, refetch } = useDoctorSession(doctor?.id);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
 
   // Real-time updates
   useRealTimeUpdates(() => {
-    refetch();
-    fetchWaitingPatients();
+    if (selectedDoctor) {
+      fetchSession();
+      fetchWaitingPatients();
+    }
   });
 
   useEffect(() => {
-    fetchDoctorProfile();
-  }, [user]);
+    fetchDoctors();
+  }, []);
 
   useEffect(() => {
-    if (doctor) {
+    if (selectedDoctor) {
+      fetchSession();
       fetchWaitingPatients();
+      setRoomName(`${selectedDoctor.name}'s Room`);
     }
-  }, [doctor]);
+  }, [selectedDoctor]);
 
-  const fetchDoctorProfile = async () => {
-    if (!user) return;
-    
+  const fetchDoctors = async () => {
     try {
       setError('');
-      // For demo purposes, we'll create a doctor profile if it doesn't exist
-      let { data: doctorData, error } = await supabase
+      const { data, error } = await supabase
         .from('doctors')
         .select('*')
-        .ilike('name', `%${user.email?.split('@')[0] || 'Doctor'}%`)
-        .limit(1);
+        .eq('status', 'active')
+        .order('name');
 
-      if (!doctorData || doctorData.length === 0) {
-        // Create doctor profile
+      if (error) {
+        console.error('Error fetching doctors:', error);
+        setError('Failed to load doctors. Please check your database connection.');
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        // Create a default doctor if none exist
         const { data: newDoctor, error: createError } = await supabase
           .from('doctors')
           .insert({
-            name: `Dr. ${user.email?.split('@')[0] || 'Doctor'}`,
+            name: `Dr. ${user?.email?.split('@')[0] || 'Doctor'}`,
             specialization: 'general',
             qualification: 'MBBS',
             experience_years: 5,
@@ -91,22 +102,81 @@ export const DoctorRoomPage: React.FC = () => {
           .select()
           .single();
 
-        if (createError) throw createError;
-        doctorData = newDoctor;
+        if (createError) {
+          console.error('Error creating doctor:', createError);
+          setError('Failed to create doctor profile. Please try again.');
+          return;
+        }
+
+        setDoctors([newDoctor]);
       } else {
-        doctorData = doctorData[0];
+        setDoctors(data);
+      }
+    } catch (error) {
+      console.error('Error in fetchDoctors:', error);
+      setError('Failed to load doctors. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSession = async () => {
+    if (!selectedDoctor) return;
+    
+    try {
+      setError('');
+      
+      // Get active session for doctor
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('doctor_sessions')
+        .select(`
+          *,
+          doctor:doctors(*),
+          current_patient:patients(*)
+        `)
+        .eq('doctor_id', selectedDoctor.id)
+        .in('session_status', ['active', 'break'])
+        .order('started_at', { ascending: false })
+        .limit(1);
+
+      if (sessionError) {
+        console.error('Session fetch error:', sessionError);
+        return;
+      }
+      
+      const activeSession = sessionData?.[0] || null;
+      setSession(activeSession);
+
+      // Get consultations for active session
+      if (activeSession) {
+        const { data: consultationData, error: consultationError } = await supabase
+          .from('consultations')
+          .select(`
+            *,
+            patient:patients(*),
+            visit:visits(*),
+            consultation_notes(*),
+            voice_transcriptions(*)
+          `)
+          .eq('session_id', activeSession.id)
+          .order('started_at', { ascending: false });
+
+        if (consultationError) {
+          console.error('Consultation fetch error:', consultationError);
+        } else {
+          setConsultations(consultationData || []);
+        }
+      } else {
+        setConsultations([]);
       }
 
-      setDoctor(doctorData);
-      setRoomName(`${doctorData.name}'s Room`);
     } catch (error) {
-      console.error('Error fetching doctor profile:', error);
-      setError('Failed to load doctor profile. Please try again.');
+      console.error('Error fetching session:', error);
     }
   };
 
   const fetchWaitingPatients = async () => {
-    if (!doctor) return;
+    if (!selectedDoctor) return;
     
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -118,23 +188,129 @@ export const DoctorRoomPage: React.FC = () => {
           patient:patients(*)
         `)
         .eq('visit_date', today)
-        .eq('doctor_id', doctor.id)
+        .eq('doctor_id', selectedDoctor.id)
         .in('status', ['waiting', 'checked_in'])
         .order('stn', { ascending: true });
 
-      if (error) throw error;
-      setWaitingPatients(data || []);
+      if (error) {
+        console.error('Error fetching waiting patients:', error);
+      } else {
+        setWaitingPatients(data || []);
+      }
     } catch (error) {
-      console.error('Error fetching waiting patients:', error);
+      console.error('Error in fetchWaitingPatients:', error);
     }
   };
 
-  const handleStartSession = async () => {
-    if (!roomName.trim()) return;
+  const startSession = async () => {
+    if (!selectedDoctor || !roomName.trim()) return;
     
-    const newSession = await startSession(roomName.trim());
-    if (newSession) {
+    try {
+      setError('');
+      setSaving(true);
+      
+      // End any existing active sessions for this doctor
+      await supabase
+        .from('doctor_sessions')
+        .update({ 
+          session_status: 'inactive',
+          ended_at: new Date().toISOString()
+        })
+        .eq('doctor_id', selectedDoctor.id)
+        .in('session_status', ['active', 'break']);
+
+      // Create new session
+      const { data, error } = await supabase
+        .from('doctor_sessions')
+        .insert({
+          doctor_id: selectedDoctor.id,
+          session_status: 'active',
+          room_name: roomName.trim(),
+          started_at: new Date().toISOString()
+        })
+        .select(`
+          *,
+          doctor:doctors(*)
+        `)
+        .single();
+
+      if (error) {
+        console.error('Error starting session:', error);
+        setError('Failed to start session. Please try again.');
+        return;
+      }
+      
+      setSession(data);
       setShowStartModal(false);
+      
+    } catch (error) {
+      console.error('Error in startSession:', error);
+      setError('Failed to start session. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const endSession = async () => {
+    if (!session) return;
+    
+    try {
+      setError('');
+      setSaving(true);
+      
+      const { error } = await supabase
+        .from('doctor_sessions')
+        .update({ 
+          session_status: 'inactive',
+          ended_at: new Date().toISOString(),
+          current_patient_id: null
+        })
+        .eq('id', session.id);
+
+      if (error) {
+        console.error('Error ending session:', error);
+        setError('Failed to end session. Please try again.');
+        return;
+      }
+      
+      setSession(null);
+      setConsultations([]);
+      
+    } catch (error) {
+      console.error('Error in endSession:', error);
+      setError('Failed to end session. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateSessionStatus = async (status: 'active' | 'break') => {
+    if (!session) return;
+    
+    try {
+      setError('');
+      
+      const { data, error } = await supabase
+        .from('doctor_sessions')
+        .update({ session_status: status })
+        .eq('id', session.id)
+        .select(`
+          *,
+          doctor:doctors(*),
+          current_patient:patients(*)
+        `)
+        .single();
+
+      if (error) {
+        console.error('Error updating session status:', error);
+        setError('Failed to update session status.');
+        return;
+      }
+      
+      setSession(data);
+    } catch (error) {
+      console.error('Error in updateSessionStatus:', error);
+      setError('Failed to update session status.');
     }
   };
 
@@ -149,17 +325,20 @@ export const DoctorRoomPage: React.FC = () => {
         .eq('consultation_id', consultation.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setConsultationNotes(data || []);
+      if (error) {
+        console.error('Error fetching consultation notes:', error);
+      } else {
+        setConsultationNotes(data || []);
+      }
     } catch (error) {
-      console.error('Error fetching consultation notes:', error);
+      console.error('Error in handlePatientClick:', error);
     }
     
     setShowPatientModal(true);
   };
 
   const saveNote = async () => {
-    if (!selectedConsultation || !newNote.trim()) return;
+    if (!selectedConsultation || !newNote.trim() || !selectedDoctor) return;
     
     setSaving(true);
     try {
@@ -167,7 +346,7 @@ export const DoctorRoomPage: React.FC = () => {
         .from('consultation_notes')
         .insert({
           consultation_id: selectedConsultation.id,
-          doctor_id: doctor!.id,
+          doctor_id: selectedDoctor.id,
           note_type: noteType,
           content: newNote.trim(),
           is_voice_generated: false
@@ -175,14 +354,18 @@ export const DoctorRoomPage: React.FC = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error saving note:', error);
+        setError('Failed to save note. Please try again.');
+        return;
+      }
       
       setConsultationNotes(prev => [data, ...prev]);
       setNewNote('');
       
     } catch (error) {
-      console.error('Error saving note:', error);
-      alert('Failed to save note');
+      console.error('Error in saveNote:', error);
+      setError('Failed to save note. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -190,6 +373,8 @@ export const DoctorRoomPage: React.FC = () => {
 
   const completeConsultation = async (consultationId: string) => {
     try {
+      setError('');
+      
       const { error } = await supabase
         .from('consultations')
         .update({ 
@@ -198,7 +383,11 @@ export const DoctorRoomPage: React.FC = () => {
         })
         .eq('id', consultationId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error completing consultation:', error);
+        setError('Failed to complete consultation.');
+        return;
+      }
       
       // Also update the visit status
       const consultation = consultations.find(c => c.id === consultationId);
@@ -209,10 +398,11 @@ export const DoctorRoomPage: React.FC = () => {
           .eq('id', consultation.visit_id);
       }
       
-      refetch();
+      fetchSession();
       setShowPatientModal(false);
     } catch (error) {
-      console.error('Error completing consultation:', error);
+      console.error('Error in completeConsultation:', error);
+      setError('Failed to complete consultation.');
     }
   };
 
@@ -236,8 +426,20 @@ export const DoctorRoomPage: React.FC = () => {
     );
   }
 
-  // Show session start modal if no active session
-  if (!session && !loading) {
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading doctor room...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show doctor selection if no doctor selected
+  if (!selectedDoctor) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
         <header className="bg-white shadow-sm border-b">
@@ -260,11 +462,112 @@ export const DoctorRoomPage: React.FC = () => {
             <div className="bg-white rounded-2xl shadow-xl p-12">
               <Stethoscope className="h-24 w-24 text-blue-600 mx-auto mb-8" />
               <h2 className="text-3xl font-bold text-gray-900 mb-4">
-                Welcome, {doctor?.name || 'Doctor'}!
+                Select Your Doctor Profile
               </h2>
               <p className="text-xl text-gray-600 mb-8">
-                Start your consultation session to begin seeing patients
+                Choose your doctor profile to start your consultation session
               </p>
+              
+              {error && (
+                <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+              
+              <div className="max-w-md mx-auto mb-8">
+                <div className="relative">
+                  <select
+                    value={selectedDoctor?.id || ''}
+                    onChange={(e) => {
+                      const doctor = doctors.find(d => d.id === e.target.value);
+                      setSelectedDoctor(doctor || null);
+                    }}
+                    className="w-full px-4 py-3 text-lg border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white"
+                  >
+                    <option value="">Select Doctor Profile</option>
+                    {doctors.map((doctor) => (
+                      <option key={doctor.id} value={doctor.id}>
+                        {doctor.name} - {doctor.specialization}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              
+              {doctors.length === 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <p className="text-yellow-800">
+                    No doctor profiles found. A default profile will be created for you.
+                  </p>
+                </div>
+              )}
+              
+              <Button
+                onClick={() => setShowStartModal(true)}
+                size="lg"
+                className="px-12 py-4 text-lg"
+                disabled={!selectedDoctor}
+              >
+                <Play className="h-6 w-6 mr-3" />
+                Continue to Room Setup
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // Show session start modal if no active session
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+        <header className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center">
+                <Stethoscope className="h-8 w-8 text-blue-600 mr-3" />
+                <h1 className="text-2xl font-bold text-gray-900">Doctor Room</h1>
+              </div>
+              <div className="flex items-center space-x-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSelectedDoctor(null)}
+                  size="sm"
+                >
+                  Change Doctor
+                </Button>
+                <Button variant="outline" onClick={() => signOut()}>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="text-center">
+            <div className="bg-white rounded-2xl shadow-xl p-12">
+              <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-8">
+                <User className="h-12 w-12 text-blue-600" />
+              </div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-4">
+                Welcome, {selectedDoctor.name}!
+              </h2>
+              <p className="text-xl text-gray-600 mb-2">
+                {selectedDoctor.specialization} • {selectedDoctor.qualification}
+              </p>
+              <p className="text-gray-500 mb-8">
+                {selectedDoctor.experience_years} years experience
+              </p>
+              
+              {error && (
+                <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
               
               <div className="max-w-md mx-auto mb-8">
                 <Input
@@ -277,34 +580,18 @@ export const DoctorRoomPage: React.FC = () => {
               </div>
               
               <Button
-                onClick={handleStartSession}
+                onClick={startSession}
                 size="lg"
                 className="px-12 py-4 text-lg"
-                disabled={!roomName.trim()}
+                disabled={!roomName.trim() || saving}
+                loading={saving}
               >
                 <Play className="h-6 w-6 mr-3" />
                 Start Session
               </Button>
-              
-              {error && (
-                <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-red-800">{error}</p>
-                </div>
-              )}
             </div>
           </div>
         </main>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading doctor room...</p>
-        </div>
       </div>
     );
   }
@@ -323,7 +610,7 @@ export const DoctorRoomPage: React.FC = () => {
               <div>
                 <h1 className="text-xl font-bold text-gray-900">{session?.room_name}</h1>
                 <p className="text-sm text-gray-600">
-                  Session started {formatRelativeTime(session?.started_at || '')}
+                  {selectedDoctor.name} • Session started {formatRelativeTime(session?.started_at || '')}
                 </p>
               </div>
             </div>
@@ -341,11 +628,19 @@ export const DoctorRoomPage: React.FC = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => updateSessionStatus(session?.session_status === 'active' ? 'break' : 'active')}
+                disabled={saving}
               >
                 <Coffee className="h-4 w-4 mr-2" />
                 {session?.session_status === 'active' ? 'Take Break' : 'Resume'}
               </Button>
-              <Button variant="outline" size="sm" onClick={endSession}>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setSelectedDoctor(null)}
+              >
+                Change Doctor
+              </Button>
+              <Button variant="outline" size="sm" onClick={endSession} disabled={saving}>
                 <LogOut className="h-4 w-4 mr-2" />
                 End Session
               </Button>
@@ -353,6 +648,14 @@ export const DoctorRoomPage: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800">{error}</p>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
@@ -707,11 +1010,13 @@ export const DoctorRoomPage: React.FC = () => {
               </Card>
 
               {/* Voice Notes */}
-              <VoiceNoteRecorder
-                consultationId={selectedConsultation.id}
-                doctorId={doctor!.id}
-                onNoteSaved={(note) => setConsultationNotes(prev => [note, ...prev])}
-              />
+              {selectedDoctor && (
+                <VoiceNoteRecorder
+                  consultationId={selectedConsultation.id}
+                  doctorId={selectedDoctor.id}
+                  onNoteSaved={(note) => setConsultationNotes(prev => [note, ...prev])}
+                />
+              )}
             </div>
 
             {/* Manual Notes */}
