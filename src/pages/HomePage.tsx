@@ -586,6 +586,34 @@ export const HomePage: React.FC = () => {
         </Card>
       </main>
 
+      {/* Credits Footer */}
+      <footer className="bg-white border-t border-gray-200 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="text-center text-sm text-gray-600">
+            <p>
+              Developed by{' '}
+              <a 
+                href="https://instagram.com/aftabxplained" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
+                Aftab Alam [ASOSE Lajpat Nagar]
+              </a>
+              {' '}| Follow on Instagram:{' '}
+              <a 
+                href="https://instagram.com/aftabxplained" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
+                @aftabxplained
+              </a>
+            </p>
+          </div>
+        </div>
+      </footer>
+
       {/* Booking Modal */}
       <Modal
         isOpen={showBookingModal}

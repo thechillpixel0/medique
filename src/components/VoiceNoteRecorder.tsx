@@ -114,7 +114,9 @@ export const VoiceNoteRecorder: React.FC<VoiceNoteRecorderProps> = ({
   const handleToggleRecording = () => {
     if (isListening) {
       stopListening();
+      setShowSuccess(false);
     } else {
+      resetTranscript();
       startListening();
     }
   };
@@ -167,7 +169,7 @@ export const VoiceNoteRecorder: React.FC<VoiceNoteRecorderProps> = ({
             onClick={handleToggleRecording}
             variant={isListening ? 'danger' : 'primary'}
             size="lg"
-            className={`${isListening ? 'animate-pulse' : ''} min-w-[160px]`}
+            className={`${isListening ? 'animate-pulse bg-red-600 hover:bg-red-700' : ''} min-w-[160px]`}
             disabled={!isSupported}
           >
             {isListening ? (

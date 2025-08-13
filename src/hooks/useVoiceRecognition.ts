@@ -142,9 +142,28 @@ export const useVoiceRecognition = (options: VoiceRecognitionOptions = {}) => {
   }, [continuous, interimResults, language, onResult, onError]);
 
   const startListening = useCallback(() => {
-    if (!recognitionRef.current || isListening) {
+    if (!recognitionRef.current) {
       return;
     }
+    
+    // Stop any existing recognition first
+    if (isListening) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping existing recognition:', e);
+      }
+      // Wait a bit before starting new recognition
+      setTimeout(() => {
+        startNewRecognition();
+      }, 100);
+    } else {
+      startNewRecognition();
+    }
+  }, [isListening]);
+
+  const startNewRecognition = useCallback(() => {
+    if (!recognitionRef.current) return;
     
     try {
       setError('');
@@ -162,10 +181,10 @@ export const useVoiceRecognition = (options: VoiceRecognitionOptions = {}) => {
       setError('Failed to start speech recognition. Please try again.');
       setIsListening(false);
     }
-  }, [isListening]);
+  }, []);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
+    if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
         
@@ -176,8 +195,9 @@ export const useVoiceRecognition = (options: VoiceRecognitionOptions = {}) => {
       } catch (error: any) {
         console.error('Error stopping speech recognition:', error);
       }
+      setIsListening(false);
     }
-  }, [isListening]);
+  }, []);
 
   const resetTranscript = useCallback(() => {
     setTranscript('');

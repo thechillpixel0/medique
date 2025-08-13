@@ -67,6 +67,7 @@ export const AdminPage: React.FC = () => {
 
     const interval = setInterval(() => {
       refetch();
+      console.log('Auto-refresh triggered at:', new Date().toLocaleTimeString());
     }, refreshInterval * 1000);
 
     return () => clearInterval(interval);
@@ -97,7 +98,9 @@ export const AdminPage: React.FC = () => {
 
   // Real-time updates
   useRealTimeUpdates(() => {
-    refetch();
+    if (autoRefreshEnabled) {
+      refetch();
+    }
   });
 
   // If not authenticated, show login form
@@ -418,8 +421,18 @@ export const AdminPage: React.FC = () => {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label htmlFor="auto-refresh" className="text-gray-600">
-                  {t('auto_refresh')} ({refreshInterval}s)
+                  Auto Refresh ({refreshInterval}s)
                 </label>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                  className="text-xs border border-gray-300 rounded px-1 py-0.5 bg-white"
+                >
+                  <option value={10}>10s</option>
+                  <option value={15}>15s</option>
+                  <option value={30}>30s</option>
+                  <option value={60}>60s</option>
+                </select>
               </div>
               <Button 
                 onClick={() => setShowScanner(true)}
@@ -1062,6 +1075,34 @@ export const AdminPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Credits Footer */}
+      <footer className="bg-white border-t border-gray-200 mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="text-center text-sm text-gray-600">
+            <p>
+              Developed by{' '}
+              <a 
+                href="https://instagram.com/aftabxplained" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
+                Aftab Alam [ASOSE Lajpat Nagar]
+              </a>
+              {' '}| Follow on Instagram:{' '}
+              <a 
+                href="https://instagram.com/aftabxplained" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-medium text-blue-600 hover:text-blue-800"
+              >
+                @aftabxplained
+              </a>
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
