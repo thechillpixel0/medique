@@ -17,7 +17,20 @@ import {
   Mail,
   Calendar,
   Activity,
-  ChevronDown
+  ChevronDown,
+  ArrowRight,
+  UserPlus,
+  Timer,
+  Bell,
+  Pause,
+  SkipForward,
+  MessageSquare,
+  ClipboardList,
+  TrendingUp,
+  RefreshCw,
+  Settings,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -26,17 +39,16 @@ import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { VoiceNoteRecorder } from '../components/VoiceNoteRecorder';
 import { useAuth } from '../hooks/useAuth';
+import { useDoctorSession } from '../hooks/useDoctorSession';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import { supabase } from '../lib/supabase';
-import { Doctor, Patient, Consultation, ConsultationNote, DoctorSession } from '../types';
+import { Doctor, Patient, Consultation, ConsultationNote, DoctorSession, Visit } from '../types';
 import { formatTime, formatRelativeTime } from '../lib/utils';
 
 export const DoctorRoomPage: React.FC = () => {
   const { user, signOut } = useAuth();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [session, setSession] = useState<DoctorSession | null>(null);
-  const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [roomName, setRoomName] = useState('');
   const [showStartModal, setShowStartModal] = useState(false);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
@@ -45,17 +57,76 @@ export const DoctorRoomPage: React.FC = () => {
   const [newNote, setNewNote] = useState('');
   const [noteType, setNoteType] = useState<'general' | 'symptoms' | 'diagnosis' | 'prescription' | 'follow_up'>('general');
   const [saving, setSaving] = useState(false);
-  const [waitingPatients, setWaitingPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [sessionTimer, setSessionTimer] = useState(0);
+  const [consultationTimer, setConsultationTimer] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const {
+    session,
+    consultations,
+    waitingPatients,
+    currentPatient,
+    loading: sessionLoading,
+    error: sessionError,
+    startSession,
+    endSession,
+    updateSessionStatus,
+    startConsultation,
+    completeConsultation,
+    callNextPatient,
+    refetch
+  } = useDoctorSession(selectedDoctor?.id);
 
   // Real-time updates
   useRealTimeUpdates(() => {
-    if (selectedDoctor) {
-      fetchSession();
-      fetchWaitingPatients();
+    if (selectedDoctor && autoRefresh) {
+      refetch();
     }
   });
+
+  // Session timer
+  useEffect(() => {
+    if (session && session.session_status === 'active') {
+      const interval = setInterval(() => {
+        const startTime = new Date(session.started_at).getTime();
+        const now = Date.now();
+        setSessionTimer(Math.floor((now - startTime) / 1000));
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [session]);
+
+  // Consultation timer
+  useEffect(() => {
+    const activeConsultation = consultations.find(c => c.status === 'in_progress');
+    if (activeConsultation) {
+      const interval = setInterval(() => {
+        const startTime = new Date(activeConsultation.started_at).getTime();
+        const now = Date.now();
+        setConsultationTimer(Math.floor((now - startTime) / 1000));
+      }, 1000);
+
+      return () => clearInterval(interval);
+    } else {
+      setConsultationTimer(0);
+    }
+  }, [consultations]);
+
+  // Sound notifications
+  useEffect(() => {
+    if (soundEnabled && waitingPatients.length > 0 && !currentPatient) {
+      // Play notification sound when patients are waiting
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+      audio.volume = 0.3;
+      audio.play().catch(() => {}); // Ignore errors if audio can't play
+    }
+  }, [waitingPatients.length, currentPatient, soundEnabled]);
 
   useEffect(() => {
     fetchDoctors();
@@ -63,8 +134,6 @@ export const DoctorRoomPage: React.FC = () => {
 
   useEffect(() => {
     if (selectedDoctor) {
-      fetchSession();
-      fetchWaitingPatients();
       setRoomName(`${selectedDoctor.name}'s Room`);
     }
   }, [selectedDoctor]);
@@ -120,200 +189,6 @@ export const DoctorRoomPage: React.FC = () => {
     }
   };
 
-  const fetchSession = async () => {
-    if (!selectedDoctor) return;
-    
-    try {
-      setError('');
-      
-      // Get active session for doctor
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('doctor_sessions')
-        .select(`
-          *,
-          doctor:doctors(*),
-          current_patient:patients(*)
-        `)
-        .eq('doctor_id', selectedDoctor.id)
-        .in('session_status', ['active', 'break'])
-        .order('started_at', { ascending: false })
-        .limit(1);
-
-      if (sessionError) {
-        console.error('Session fetch error:', sessionError);
-        return;
-      }
-      
-      const activeSession = sessionData?.[0] || null;
-      setSession(activeSession);
-
-      // Get consultations for active session
-      if (activeSession) {
-        const { data: consultationData, error: consultationError } = await supabase
-          .from('consultations')
-          .select(`
-            *,
-            patient:patients(*),
-            visit:visits(*),
-            consultation_notes(*),
-            voice_transcriptions(*)
-          `)
-          .eq('session_id', activeSession.id)
-          .order('started_at', { ascending: false });
-
-        if (consultationError) {
-          console.error('Consultation fetch error:', consultationError);
-        } else {
-          setConsultations(consultationData || []);
-        }
-      } else {
-        setConsultations([]);
-      }
-
-    } catch (error) {
-      console.error('Error fetching session:', error);
-    }
-  };
-
-  const fetchWaitingPatients = async () => {
-    if (!selectedDoctor) return;
-    
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      const { data, error } = await supabase
-        .from('visits')
-        .select(`
-          *,
-          patient:patients(*)
-        `)
-        .eq('visit_date', today)
-        .eq('doctor_id', selectedDoctor.id)
-        .in('status', ['waiting', 'checked_in'])
-        .order('stn', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching waiting patients:', error);
-      } else {
-        setWaitingPatients(data || []);
-      }
-    } catch (error) {
-      console.error('Error in fetchWaitingPatients:', error);
-    }
-  };
-
-  const startSession = async () => {
-    if (!selectedDoctor || !roomName.trim()) return;
-    
-    try {
-      setError('');
-      setSaving(true);
-      
-      // End any existing active sessions for this doctor
-      await supabase
-        .from('doctor_sessions')
-        .update({ 
-          session_status: 'inactive',
-          ended_at: new Date().toISOString()
-        })
-        .eq('doctor_id', selectedDoctor.id)
-        .in('session_status', ['active', 'break']);
-
-      // Create new session
-      const { data, error } = await supabase
-        .from('doctor_sessions')
-        .insert({
-          doctor_id: selectedDoctor.id,
-          session_status: 'active',
-          room_name: roomName.trim(),
-          started_at: new Date().toISOString()
-        })
-        .select(`
-          *,
-          doctor:doctors(*)
-        `)
-        .single();
-
-      if (error) {
-        console.error('Error starting session:', error);
-        setError('Failed to start session. Please try again.');
-        return;
-      }
-      
-      setSession(data);
-      setShowStartModal(false);
-      
-    } catch (error) {
-      console.error('Error in startSession:', error);
-      setError('Failed to start session. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const endSession = async () => {
-    if (!session) return;
-    
-    try {
-      setError('');
-      setSaving(true);
-      
-      const { error } = await supabase
-        .from('doctor_sessions')
-        .update({ 
-          session_status: 'inactive',
-          ended_at: new Date().toISOString(),
-          current_patient_id: null
-        })
-        .eq('id', session.id);
-
-      if (error) {
-        console.error('Error ending session:', error);
-        setError('Failed to end session. Please try again.');
-        return;
-      }
-      
-      setSession(null);
-      setConsultations([]);
-      
-    } catch (error) {
-      console.error('Error in endSession:', error);
-      setError('Failed to end session. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateSessionStatus = async (status: 'active' | 'break') => {
-    if (!session) return;
-    
-    try {
-      setError('');
-      
-      const { data, error } = await supabase
-        .from('doctor_sessions')
-        .update({ session_status: status })
-        .eq('id', session.id)
-        .select(`
-          *,
-          doctor:doctors(*),
-          current_patient:patients(*)
-        `)
-        .single();
-
-      if (error) {
-        console.error('Error updating session status:', error);
-        setError('Failed to update session status.');
-        return;
-      }
-      
-      setSession(data);
-    } catch (error) {
-      console.error('Error in updateSessionStatus:', error);
-      setError('Failed to update session status.');
-    }
-  };
-
   const handlePatientClick = async (consultation: Consultation) => {
     setSelectedConsultation(consultation);
     
@@ -362,6 +237,7 @@ export const DoctorRoomPage: React.FC = () => {
       
       setConsultationNotes(prev => [data, ...prev]);
       setNewNote('');
+      setSuccess('Note saved successfully!');
       
     } catch (error) {
       console.error('Error in saveNote:', error);
@@ -371,39 +247,70 @@ export const DoctorRoomPage: React.FC = () => {
     }
   };
 
-  const completeConsultation = async (consultationId: string) => {
+  const handleStartConsultation = async (visitId: string) => {
     try {
       setError('');
-      
-      const { error } = await supabase
-        .from('consultations')
-        .update({ 
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', consultationId);
-
-      if (error) {
-        console.error('Error completing consultation:', error);
-        setError('Failed to complete consultation.');
-        return;
-      }
-      
-      // Also update the visit status
-      const consultation = consultations.find(c => c.id === consultationId);
+      const consultation = await startConsultation(visitId);
       if (consultation) {
-        await supabase
-          .from('visits')
-          .update({ status: 'completed' })
-          .eq('id', consultation.visit_id);
+        setSuccess('Consultation started successfully!');
       }
-      
-      fetchSession();
+    } catch (error) {
+      console.error('Error starting consultation:', error);
+      setError('Failed to start consultation.');
+    }
+  };
+
+  const handleCompleteConsultation = async (consultationId: string) => {
+    try {
+      setError('');
+      await completeConsultation(consultationId);
+      setSuccess('Consultation completed successfully!');
       setShowPatientModal(false);
     } catch (error) {
-      console.error('Error in completeConsultation:', error);
+      console.error('Error completing consultation:', error);
       setError('Failed to complete consultation.');
     }
+  };
+
+  const handleCallNextPatient = async () => {
+    try {
+      setError('');
+      const consultation = await callNextPatient();
+      if (consultation) {
+        setSuccess('Next patient called successfully!');
+      } else {
+        setError('No patients waiting in queue.');
+      }
+    } catch (error) {
+      console.error('Error calling next patient:', error);
+      setError('Failed to call next patient.');
+    }
+  };
+
+  const formatTimer = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    if (type === 'success') {
+      setSuccess(message);
+      setError('');
+    } else {
+      setError(message);
+      setSuccess('');
+    }
+    
+    setTimeout(() => {
+      setSuccess('');
+      setError('');
+    }, 5000);
   };
 
   // Show login if not authenticated
@@ -427,7 +334,7 @@ export const DoctorRoomPage: React.FC = () => {
   }
 
   // Show loading state
-  if (loading) {
+  if (loading || sessionLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -563,9 +470,9 @@ export const DoctorRoomPage: React.FC = () => {
                 {selectedDoctor.experience_years} years experience
               </p>
               
-              {error && (
+              {(error || sessionError) && (
                 <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-red-800">{error}</p>
+                  <p className="text-red-800">{error || sessionError}</p>
                 </div>
               )}
               
@@ -580,7 +487,12 @@ export const DoctorRoomPage: React.FC = () => {
               </div>
               
               <Button
-                onClick={startSession}
+                onClick={async () => {
+                  const newSession = await startSession(roomName);
+                  if (newSession) {
+                    showNotification('Session started successfully!');
+                  }
+                }}
                 size="lg"
                 className="px-12 py-4 text-lg"
                 disabled={!roomName.trim() || saving}
@@ -610,29 +522,56 @@ export const DoctorRoomPage: React.FC = () => {
               <div>
                 <h1 className="text-xl font-bold text-gray-900">{session?.room_name}</h1>
                 <p className="text-sm text-gray-600">
-                  {selectedDoctor.name} • Session started {formatRelativeTime(session?.started_at || '')}
+                  {selectedDoctor.name} • Session: {formatTimer(sessionTimer)}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${
-                  session?.session_status === 'active' ? 'bg-green-500' : 
+                  session?.session_status === 'active' ? 'bg-green-500 animate-pulse' : 
                   session?.session_status === 'break' ? 'bg-yellow-500' : 'bg-red-500'
                 }`}></div>
                 <span className="text-sm font-medium capitalize">
                   {session?.session_status}
                 </span>
               </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSoundEnabled(!soundEnabled)}
+              >
+                {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSettings(true)}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+              
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => updateSessionStatus(session?.session_status === 'active' ? 'break' : 'active')}
                 disabled={saving}
               >
-                <Coffee className="h-4 w-4 mr-2" />
-                {session?.session_status === 'active' ? 'Take Break' : 'Resume'}
+                {session?.session_status === 'active' ? (
+                  <>
+                    <Pause className="h-4 w-4 mr-2" />
+                    Take Break
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Resume
+                  </>
+                )}
               </Button>
+              
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -640,7 +579,16 @@ export const DoctorRoomPage: React.FC = () => {
               >
                 Change Doctor
               </Button>
-              <Button variant="outline" size="sm" onClick={endSession} disabled={saving}>
+              
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={async () => {
+                  await endSession();
+                  showNotification('Session ended successfully!');
+                }} 
+                disabled={saving}
+              >
                 <LogOut className="h-4 w-4 mr-2" />
                 End Session
               </Button>
@@ -649,17 +597,26 @@ export const DoctorRoomPage: React.FC = () => {
         </div>
       </header>
 
-      {error && (
+      {/* Notifications */}
+      {(error || sessionError) && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <p className="text-red-800">{error}</p>
+            <p className="text-red-800">{error || sessionError}</p>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-green-800">{success}</p>
           </div>
         </div>
       )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center">
@@ -667,7 +624,7 @@ export const DoctorRoomPage: React.FC = () => {
                   <Users className="h-6 w-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Active Consultations</p>
+                  <p className="text-sm font-medium text-gray-600">Active</p>
                   <p className="text-2xl font-bold text-gray-900">{activeConsultations.length}</p>
                 </div>
               </div>
@@ -681,7 +638,7 @@ export const DoctorRoomPage: React.FC = () => {
                   <CheckCircle className="h-6 w-6 text-green-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Completed Today</p>
+                  <p className="text-sm font-medium text-gray-600">Completed</p>
                   <p className="text-2xl font-bold text-gray-900">{completedToday}</p>
                 </div>
               </div>
@@ -695,7 +652,7 @@ export const DoctorRoomPage: React.FC = () => {
                   <Clock className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Waiting Patients</p>
+                  <p className="text-sm font-medium text-gray-600">Waiting</p>
                   <p className="text-2xl font-bold text-gray-900">{waitingPatients.length}</p>
                 </div>
               </div>
@@ -706,13 +663,25 @@ export const DoctorRoomPage: React.FC = () => {
             <CardContent className="pt-6">
               <div className="flex items-center">
                 <div className="p-2 bg-purple-100 rounded-lg">
-                  <Activity className="h-6 w-6 text-purple-600" />
+                  <Timer className="h-6 w-6 text-purple-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Session Duration</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {Math.floor((Date.now() - new Date(session?.started_at || '').getTime()) / (1000 * 60))}m
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Session</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatTimer(sessionTimer)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <Activity className="h-6 w-6 text-orange-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Current</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatTimer(consultationTimer)}</p>
                 </div>
               </div>
             </CardContent>
@@ -724,46 +693,72 @@ export const DoctorRoomPage: React.FC = () => {
           <div className="lg:col-span-2">
             <Card>
               <CardHeader>
-                <h2 className="text-xl font-semibold">Current Patient</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Current Patient</h2>
+                  {!currentPatient && waitingPatients.length > 0 && (
+                    <Button
+                      onClick={handleCallNextPatient}
+                      size="sm"
+                      className="animate-pulse"
+                    >
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Call Next Patient
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
-                {session?.current_patient ? (
+                {currentPatient ? (
                   <div className="space-y-4">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                        <User className="h-8 w-8 text-blue-600" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="h-8 w-8 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            {currentPatient.patient?.name}
+                          </h3>
+                          <p className="text-gray-600">
+                            Token #{currentPatient.stn} • Age: {currentPatient.patient?.age}
+                          </p>
+                          <p className="text-gray-600">
+                            ID: {currentPatient.patient?.uid}
+                          </p>
+                          <p className="text-gray-600">
+                            Phone: {currentPatient.patient?.phone}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {session.current_patient.name}
-                        </h3>
-                        <p className="text-gray-600">
-                          Age: {session.current_patient.age} • ID: {session.current_patient.uid}
-                        </p>
-                        <p className="text-gray-600">
-                          Phone: {session.current_patient.phone}
-                        </p>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-blue-600 mb-2">
+                          {formatTimer(consultationTimer)}
+                        </div>
+                        <Button
+                          onClick={() => {
+                            const consultation = activeConsultations.find(c => 
+                              c.visit_id === currentPatient.id
+                            );
+                            if (consultation) {
+                              handlePatientClick(consultation);
+                            }
+                          }}
+                          size="sm"
+                        >
+                          Open Profile
+                        </Button>
                       </div>
-                      <Button
-                        onClick={() => {
-                          const consultation = activeConsultations.find(c => 
-                            c.patient_id === session.current_patient?.id
-                          );
-                          if (consultation) handlePatientClick(consultation);
-                        }}
-                      >
-                        Open Profile
-                      </Button>
                     </div>
                     
-                    {session.current_patient.allergies && session.current_patient.allergies.length > 0 && (
+                    {/* Patient Health Info */}
+                    {currentPatient.patient?.allergies && currentPatient.patient.allergies.length > 0 && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                         <div className="flex items-center mb-2">
                           <AlertTriangle className="h-4 w-4 text-red-600 mr-2" />
                           <span className="font-medium text-red-800">Allergies:</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {session.current_patient.allergies.map((allergy, index) => (
+                          {currentPatient.patient.allergies.map((allergy, index) => (
                             <span key={index} className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">
                               {allergy}
                             </span>
@@ -772,14 +767,14 @@ export const DoctorRoomPage: React.FC = () => {
                       </div>
                     )}
 
-                    {session.current_patient.medical_conditions && session.current_patient.medical_conditions.length > 0 && (
+                    {currentPatient.patient?.medical_conditions && currentPatient.patient.medical_conditions.length > 0 && (
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                         <div className="flex items-center mb-2">
                           <Heart className="h-4 w-4 text-yellow-600 mr-2" />
                           <span className="font-medium text-yellow-800">Medical Conditions:</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {session.current_patient.medical_conditions.map((condition, index) => (
+                          {currentPatient.patient.medical_conditions.map((condition, index) => (
                             <span key={index} className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm">
                               {condition}
                             </span>
@@ -787,14 +782,47 @@ export const DoctorRoomPage: React.FC = () => {
                         </div>
                       </div>
                     )}
+
+                    {/* Quick Actions */}
+                    <div className="flex space-x-3">
+                      <Button
+                        onClick={() => {
+                          const consultation = activeConsultations.find(c => 
+                            c.visit_id === currentPatient.id
+                          );
+                          if (consultation) {
+                            handleCompleteConsultation(consultation.id);
+                          }
+                        }}
+                        className="flex-1"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Complete Consultation
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleCallNextPatient}
+                        disabled={waitingPatients.length === 0}
+                      >
+                        <SkipForward className="h-4 w-4 mr-2" />
+                        Next Patient
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-12">
                     <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500">No patient currently in consultation</p>
-                    <p className="text-sm text-gray-400 mt-2">
-                      Patients will appear here automatically when checked in by reception
-                    </p>
+                    <p className="text-gray-500 mb-4">No patient currently in consultation</p>
+                    {waitingPatients.length > 0 ? (
+                      <Button onClick={handleCallNextPatient} className="animate-bounce">
+                        <Bell className="h-4 w-4 mr-2" />
+                        Call Next Patient ({waitingPatients.length} waiting)
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-gray-400">
+                        Patients will appear here when they check in
+                      </p>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -805,19 +833,31 @@ export const DoctorRoomPage: React.FC = () => {
           <div>
             <Card>
               <CardHeader>
-                <h2 className="text-xl font-semibold">Waiting Queue</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-semibold">Waiting Queue</h2>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refetch}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-96 overflow-y-auto">
                   {waitingPatients.map((visit, index) => (
-                    <div key={visit.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div key={visit.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <span className="text-sm font-bold text-blue-600">#{visit.stn}</span>
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">{visit.patient.name}</p>
-                          <p className="text-sm text-gray-600">Age: {visit.patient.age}</p>
+                          <p className="font-medium text-gray-900">{visit.patient?.name}</p>
+                          <p className="text-sm text-gray-600">Age: {visit.patient?.age}</p>
+                          <p className="text-xs text-gray-500">
+                            Waiting: {formatRelativeTime(visit.created_at)}
+                          </p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -826,6 +866,16 @@ export const DoctorRoomPage: React.FC = () => {
                         }`}>
                           {visit.status === 'checked_in' ? 'Ready' : 'Waiting'}
                         </span>
+                        {index === 0 && !currentPatient && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleStartConsultation(visit.id)}
+                            className="mt-2 w-full"
+                          >
+                            <ArrowRight className="h-3 w-3 mr-1" />
+                            Start
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -834,6 +884,9 @@ export const DoctorRoomPage: React.FC = () => {
                     <div className="text-center py-8">
                       <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
                       <p className="text-gray-500 text-sm">No patients waiting</p>
+                      <p className="text-gray-400 text-xs mt-1">
+                        Patients will appear here when they check in
+                      </p>
                     </div>
                   )}
                 </div>
@@ -845,13 +898,24 @@ export const DoctorRoomPage: React.FC = () => {
         {/* Recent Consultations */}
         <Card className="mt-8">
           <CardHeader>
-            <h2 className="text-xl font-semibold">Today's Consultations</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Today's Consultations</h2>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-600">
+                  Total: {consultations.length} | Completed: {completedToday}
+                </span>
+                <Button variant="outline" size="sm" onClick={refetch}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Token</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Started</th>
@@ -862,6 +926,11 @@ export const DoctorRoomPage: React.FC = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {consultations.map((consultation) => (
                     <tr key={consultation.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-lg font-bold text-gray-900">
+                          #{consultation.visit?.stn}
+                        </div>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
@@ -892,17 +961,31 @@ export const DoctorRoomPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {consultation.duration_minutes ? 
                           `${consultation.duration_minutes} min` : 
-                          `${Math.floor((Date.now() - new Date(consultation.started_at).getTime()) / (1000 * 60))} min`
+                          consultation.status === 'in_progress' ?
+                          formatTimer(Math.floor((Date.now() - new Date(consultation.started_at).getTime()) / 1000)) :
+                          '-'
                         }
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handlePatientClick(consultation)}
-                        >
-                          View Details
-                        </Button>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handlePatientClick(consultation)}
+                          >
+                            <FileText className="h-4 w-4 mr-1" />
+                            View
+                          </Button>
+                          {consultation.status === 'in_progress' && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleCompleteConsultation(consultation.id)}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Complete
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -913,6 +996,9 @@ export const DoctorRoomPage: React.FC = () => {
                 <div className="text-center py-12">
                   <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-500">No consultations today</p>
+                  <p className="text-sm text-gray-400 mt-2">
+                    Consultations will appear here when you start seeing patients
+                  </p>
                 </div>
               )}
             </div>
@@ -946,7 +1032,7 @@ export const DoctorRoomPage: React.FC = () => {
                           {selectedConsultation.patient?.name}
                         </h4>
                         <p className="text-sm text-gray-600">
-                          {selectedConsultation.patient?.uid}
+                          Token #{selectedConsultation.visit?.stn} • {selectedConsultation.patient?.uid}
                         </p>
                       </div>
                     </div>
@@ -1014,7 +1100,10 @@ export const DoctorRoomPage: React.FC = () => {
                 <VoiceNoteRecorder
                   consultationId={selectedConsultation.id}
                   doctorId={selectedDoctor.id}
-                  onNoteSaved={(note) => setConsultationNotes(prev => [note, ...prev])}
+                  onNoteSaved={(note) => {
+                    setConsultationNotes(prev => [note, ...prev]);
+                    showNotification('Voice note saved successfully!');
+                  }}
                 />
               )}
             </div>
@@ -1092,7 +1181,7 @@ export const DoctorRoomPage: React.FC = () => {
                   
                   {consultationNotes.length === 0 && (
                     <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-8 w-8 mx-auto mb-2" />
+                      <MessageSquare className="h-8 w-8 mx-auto mb-2" />
                       <p>No notes yet. Start adding notes above.</p>
                     </div>
                   )}
@@ -1111,7 +1200,7 @@ export const DoctorRoomPage: React.FC = () => {
               </Button>
               {selectedConsultation.status === 'in_progress' && (
                 <Button
-                  onClick={() => completeConsultation(selectedConsultation.id)}
+                  onClick={() => handleCompleteConsultation(selectedConsultation.id)}
                   className="flex-1"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
@@ -1121,6 +1210,70 @@ export const DoctorRoomPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        title="Doctor Room Settings"
+        size="md"
+      >
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-gray-900">Auto Refresh</h4>
+              <p className="text-sm text-gray-600">Automatically refresh patient data</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-gray-900">Sound Notifications</h4>
+              <p className="text-sm text-gray-600">Play sound when patients are waiting</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={soundEnabled}
+              onChange={(e) => setSoundEnabled(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="pt-4 border-t">
+            <h4 className="font-medium text-gray-900 mb-4">Session Statistics</h4>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-lg font-bold text-gray-900">{consultations.length}</div>
+                <div className="text-gray-600">Total Consultations</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-lg font-bold text-gray-900">{completedToday}</div>
+                <div className="text-gray-600">Completed Today</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-lg font-bold text-gray-900">{waitingPatients.length}</div>
+                <div className="text-gray-600">Currently Waiting</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="text-lg font-bold text-gray-900">{formatTimer(sessionTimer)}</div>
+                <div className="text-gray-600">Session Duration</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={() => setShowSettings(false)}>
+              Close
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
