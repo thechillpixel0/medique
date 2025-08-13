@@ -13,6 +13,7 @@ export const Input: React.FC<InputProps> = ({
   error,
   helperText,
   id,
+  type = 'text',
   ...props
 }) => {
   const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
@@ -29,10 +30,12 @@ export const Input: React.FC<InputProps> = ({
       )}
       <input
         id={inputId}
+        type={type}
         className={cn(
           'w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm transition-colors',
           'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
           'disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed',
+          'placeholder:text-gray-400',
           error && 'border-red-500 focus:ring-red-500',
           className
         )}
