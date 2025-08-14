@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search, FileText } from 'lucide-react';
+import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
