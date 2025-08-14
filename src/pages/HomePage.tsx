@@ -11,7 +11,7 @@ import { BookingForm } from '../components/BookingForm';
 import { PatientLookup } from '../components/PatientLookup';
 import { useTranslation } from '../lib/translations';
 import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { generateUID } from '../lib/utils';
 import { generateQRCode, QRPayload, downloadQRCode } from '../lib/qr';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
@@ -51,6 +51,13 @@ export const HomePage: React.FC = () => {
 
   const fetchDepartmentStats = async () => {
     try {
+      // Check if Supabase is properly configured
+      if (!isSupabaseConfigured) {
+        setError('Database connection not configured. Please check your .env file with valid Supabase credentials.');
+        setDepartmentStats([]);
+        return;
+      }
+
       setError('');
       
       const today = new Date().toISOString().split('T')[0];
@@ -60,7 +67,11 @@ export const HomePage: React.FC = () => {
         .select('*')
         .eq('is_active', true);
 
-      if (!departments || departments.length === 0) {
+      if (departments === null) {
+        throw new Error('Failed to fetch departments from database');
+      }
+
+      if (departments.length === 0) {
         console.warn('No departments found, using default message');
         setDepartmentStats([]);
         return;
@@ -110,9 +121,13 @@ export const HomePage: React.FC = () => {
       setDepartmentStats(stats);
     } catch (error) {
       console.error('Error fetching department stats:', error);
+
+      if (!isSupabaseConfigured) {
+        setError('Database not configured. Please set up your Supabase credentials in the .env file.');
+      } else {
+        setError('Unable to load department information. Please check your database connection and try refreshing the page.');
+      }
       
-      // Set a user-friendly error message
-      setError('Unable to load department information. Please check your database connection.');
       setDepartmentStats([]);
     }
   };
@@ -124,6 +139,12 @@ export const HomePage: React.FC = () => {
 
   const checkMaintenanceMode = async () => {
     try {
+      // Skip if Supabase is not configured
+      if (!isSupabaseConfigured) {
+        console.log('Skipping maintenance mode check - Supabase not configured');
+        return;
+      }
+
       const { data: maintenanceData } = await supabase
         .from('clinic_settings')
         .select('setting_value')
@@ -167,6 +188,13 @@ export const HomePage: React.FC = () => {
   const handleBookToken = async (bookingData: BookingRequest) => {
     setBookingLoading(true);
     setError('');
+    
+    if (!isSupabaseConfigured) {
+      setError('Database not configured. Please contact support.');
+      setBookingLoading(false);
+      return;
+    }
+    
     try {
       const today = new Date().toISOString().split('T')[0];
       
@@ -464,13 +492,30 @@ export const HomePage: React.FC = () => {
                   <div className="mt-3 text-sm text-red-600">
                     <p className="font-medium">To fix this issue:</p>
                     <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>Create a <code className="bg-red-100 px-1 rounded">.env</code> file in your project root</li>
+                      <li>Create a <code className="bg-red-100 px-1 rounded">.env</code> file in your project root (copy from .env.example)</li>
                       <li>Copy the contents from <code className="bg-red-100 px-1 rounded">.env.example</code></li>
                       <li>Replace placeholder values with your actual Supabase credentials</li>
                       <li>Restart the development server</li>
                     </ol>
                   </div>
                 )}
+              </div>
+              <div className="mt-4">
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline"
+                  size="sm"
+                >
+                  Retry Connection
+                </Button>
+                <Button 
+                  onClick={() => setError('')} 
+                  variant="ghost"
+                  size="sm"
+                  className="ml-2"
+                >
+                  Dismiss
+                </Button>
               </div>
             </div>
           </div>
