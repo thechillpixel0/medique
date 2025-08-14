@@ -24,6 +24,7 @@ import { QRScanner } from '../components/QRScanner';
 import { PatientLookup } from '../components/PatientLookup';
 import { PatientDetailModal } from '../components/PatientDetailModal';
 import { SettingsPanel } from '../components/SettingsPanel';
+import { AdvancedSettings } from '../components/AdvancedSettings';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { useAuth } from '../hooks/useAuth';
 import { useQueue } from '../hooks/useQueue';
@@ -46,6 +47,7 @@ export const AdminPage: React.FC = () => {
   const [showPatientDetail, setShowPatientDetail] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showVisitModal, setShowVisitModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -457,6 +459,14 @@ export const AdminPage: React.FC = () => {
                 <Settings className="mr-2 h-4 w-4" />
                 {t('settings')}
               </Button>
+              <Button 
+                onClick={() => setShowAdvancedSettings(true)}
+                variant="outline"
+                size="sm"
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Advanced
+              </Button>
               <Button variant="outline" onClick={() => signOut()} size="sm">
                 <LogOut className="mr-2 h-4 w-4" />
                 {t('sign_out')}
@@ -841,6 +851,12 @@ export const AdminPage: React.FC = () => {
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+      />
+
+      {/* Advanced Settings Panel */}
+      <AdvancedSettings
+        isOpen={showAdvancedSettings}
+        onClose={() => setShowAdvancedSettings(false)}
       />
 
       {/* Visit Details Modal */}

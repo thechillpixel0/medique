@@ -6,15 +6,22 @@ import { Card, CardContent, CardHeader } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { QueueWidget } from '../components/QueueWidget';
-import { Queue2DVisualization } from '../components/Queue2DVisualization';
+  Search,
+  FileText,
+  Info,
+  Play
 import { BookingForm } from '../components/BookingForm';
 import { PatientLookup } from '../components/PatientLookup';
+import { PrescriptionDownload } from '../components/PrescriptionDownload';
+import { InteractiveGuide } from '../components/InteractiveGuide';
 import { useTranslation } from '../lib/translations';
 import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { generateUID } from '../lib/utils';
 import { generateQRCode, QRPayload, downloadQRCode } from '../lib/qr';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
+import { useNotifications, NotificationSystem } from '../components/NotificationSystem';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 import { createPaymentIntent, confirmPayment } from '../lib/stripe';
 
 export const HomePage: React.FC = () => {
@@ -22,6 +29,8 @@ export const HomePage: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [showPatientLookup, setShowPatientLookup] = useState(false);
+  const [showPrescriptionDownload, setShowPrescriptionDownload] = useState(false);
+  const [showInteractiveGuide, setShowInteractiveGuide] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
@@ -34,6 +43,7 @@ export const HomePage: React.FC = () => {
   const [paymentLoading, setPaymentLoading] = useState<boolean>(false);
   const [refreshInterval, setRefreshInterval] = useState<number>(15);
   const [paymentError, setPaymentError] = useState<string>('');
+  const { notifications, addNotification, removeNotification } = useNotifications();
 
   // Real-time updates
   useRealTimeUpdates(() => {
@@ -345,6 +355,13 @@ export const HomePage: React.FC = () => {
       setBookingResult(result);
       setShowBookingModal(false);
       
+      addNotification({
+        type: 'success',
+        title: 'Booking Confirmed!',
+        message: `Your token #${nextSTN} has been booked successfully.`,
+        duration: 5000
+      });
+      
       if (bookingData.payment_mode === 'pay_now' && stripeEnabled) {
         setShowStripePayment(true);
       } else {
@@ -355,6 +372,12 @@ export const HomePage: React.FC = () => {
       console.error('Booking error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to book token. Please try again.';
       setError(errorMessage);
+      addNotification({
+        type: 'error',
+        title: 'Booking Failed',
+        message: errorMessage,
+        duration: 7000
+      });
     } finally {
       setBookingLoading(false);
     }
@@ -430,9 +453,22 @@ export const HomePage: React.FC = () => {
       setShowStripePayment(false);
       setShowConfirmationModal(true);
       
+      addNotification({
+        type: 'success',
+        title: 'Payment Successful',
+        message: `Payment of ₹${amount} processed successfully.`,
+        duration: 5000
+      });
+      
     } catch (error) {
       console.error('Payment processing error:', error);
       setPaymentError(error instanceof Error ? error.message : 'Payment processing failed. Please try again.');
+      addNotification({
+        type: 'error',
+        title: 'Payment Failed',
+        message: error instanceof Error ? error.message : 'Payment processing failed.',
+        duration: 7000
+      });
     } finally {
       setPaymentLoading(false);
     }
@@ -460,6 +496,12 @@ export const HomePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50" dir={t('dir')}>
+      {/* Notification System */}
+      <NotificationSystem 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
+      
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -470,9 +512,17 @@ export const HomePage: React.FC = () => {
             </div>
             <div className="flex items-center space-x-4">
               <LanguageSwitcher />
+              <Button variant="outline" onClick={() => setShowPrescriptionDownload(true)}>
+                <FileText className="h-4 w-4 mr-2" />
+                Download Prescriptions
+              </Button>
               <Button variant="outline" onClick={() => setShowPatientLookup(true)}>
                 <Search className="h-4 w-4 mr-2" />
                 {t('track_by_uid')}
+              </Button>
+              <Button variant="outline" onClick={() => setShowInteractiveGuide(true)}>
+                <Info className="h-4 w-4 mr-2" />
+                How it Works
               </Button>
             </div>
           </div>
@@ -537,23 +587,51 @@ export const HomePage: React.FC = () => {
             <Calendar className="mr-2 h-6 w-6" />
             {t('book_token_now')}
           </Button>
+          
+          <div className="flex justify-center space-x-4 mb-8">
+            <Button
+              onClick={() => setShowInteractiveGuide(true)}
+              variant="outline"
+              size="sm"
+            >
+              <Play className="mr-2 h-4 w-4" />
+              Interactive Guide
+            </Button>
+            <Button
+              onClick={() => setShowPrescriptionDownload(true)}
+              variant="outline"
+              size="sm"
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Download Prescriptions
+            </Button>
+          </div>
         </div>
 
         {/* Live Queue Widget */}
         <QueueWidget />
 
+        {/* Loading State for Department Stats */}
+        {departmentStats.length === 0 && !error && (
+          <div className="text-center py-12">
+            <LoadingSpinner size="lg" text="Loading queue information..." />
+          </div>
+        )}
+
         {/* 2D Queue Visualization */}
-        <Card className="mb-12">
-          <CardHeader>
-            <h3 className="text-2xl font-bold text-center text-gray-900">Live Queue Dashboard</h3>
-            <p className="text-center text-gray-600">Real-time visualization of all department queues with patient emojis</p>
-          </CardHeader>
-          <CardContent>
-            <Queue2DVisualization 
-              departmentStats={departmentStats}
-            />
-          </CardContent>
-        </Card>
+        {departmentStats.length > 0 && (
+          <Card className="mb-12">
+            <CardHeader>
+              <h3 className="text-2xl font-bold text-center text-gray-900">Live Queue Dashboard</h3>
+              <p className="text-center text-gray-600">Real-time visualization of all department queues with patient emojis</p>
+            </CardHeader>
+            <CardContent>
+              <Queue2DVisualization 
+                departmentStats={departmentStats}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Features */}
         <div className="grid md:grid-cols-3 gap-8 mb-12">
@@ -785,6 +863,18 @@ export const HomePage: React.FC = () => {
       <PatientLookup
         isOpen={showPatientLookup}
         onClose={() => setShowPatientLookup(false)}
+      />
+
+      {/* Prescription Download Modal */}
+      <PrescriptionDownload
+        isOpen={showPrescriptionDownload}
+        onClose={() => setShowPrescriptionDownload(false)}
+      />
+
+      {/* Interactive Guide Modal */}
+      <InteractiveGuide
+        isOpen={showInteractiveGuide}
+        onClose={() => setShowInteractiveGuide(false)}
       />
 
       {/* Stripe Payment Modal */}
