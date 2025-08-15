@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search } from 'lucide-react';
+import { Heart, Clock, Users, Calendar, QrCode, CheckCircle, Search, FileText } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardContent, CardHeader } from '../components/ui/Card';
@@ -9,6 +9,7 @@ import { QueueWidget } from '../components/QueueWidget';
 import { Queue2DVisualization } from '../components/Queue2DVisualization';
 import { BookingForm } from '../components/BookingForm';
 import { PatientLookup } from '../components/PatientLookup';
+import { MedicalHistoryViewer } from '../components/MedicalHistoryViewer';
 import { useTranslation } from '../lib/translations';
 import { BookingRequest, BookingResponse, DepartmentStats } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -22,6 +23,7 @@ export const HomePage: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [showPatientLookup, setShowPatientLookup] = useState(false);
+  const [showMedicalHistory, setShowMedicalHistory] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
@@ -474,6 +476,10 @@ export const HomePage: React.FC = () => {
                 <Search className="h-4 w-4 mr-2" />
                 {t('track_by_uid')}
               </Button>
+              <Button variant="outline" onClick={() => setShowMedicalHistory(true)}>
+                <FileText className="h-4 w-4 mr-2" />
+                Medical History
+              </Button>
             </div>
           </div>
         </div>
@@ -785,6 +791,12 @@ export const HomePage: React.FC = () => {
       <PatientLookup
         isOpen={showPatientLookup}
         onClose={() => setShowPatientLookup(false)}
+      />
+
+      {/* Medical History Viewer Modal */}
+      <MedicalHistoryViewer
+        isOpen={showMedicalHistory}
+        onClose={() => setShowMedicalHistory(false)}
       />
 
       {/* Stripe Payment Modal */}
