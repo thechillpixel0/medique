@@ -40,8 +40,12 @@ export const Button: React.FC<ButtonProps> = ({
       e.preventDefault();
       return;
     }
-    if (onClick) {
-      onClick(e);
+    try {
+      if (onClick) {
+        onClick(e);
+      }
+    } catch (error) {
+      console.error('Button click error:', error);
     }
   };
 

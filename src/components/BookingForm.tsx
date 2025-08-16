@@ -51,13 +51,21 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
 
   const fetchDepartments = async () => {
     try {
+      if (!supabase || typeof supabase.from !== 'function') {
+        console.warn('Supabase client not configured');
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('departments')
         .select('*')
         .eq('is_active', true)
         .order('display_name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching departments:', error);
+        return;
+      }
       setDepartments(data || []);
     } catch (error) {
       console.error('Error fetching departments:', error);
@@ -66,13 +74,21 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
 
   const fetchDoctors = async () => {
     try {
+      if (!supabase || typeof supabase.from !== 'function') {
+        console.warn('Supabase client not configured');
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('doctors')
         .select('*')
         .eq('status', 'active')
         .order('name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching doctors:', error);
+        return;
+      }
       setDoctors(data || []);
     } catch (error) {
       console.error('Error fetching doctors:', error);
@@ -83,10 +99,18 @@ export const BookingForm: React.FC<BookingFormProps> = ({ onSubmit, loading }) =
     const newErrors: Partial<BookingRequest> = {};
 
     if (!formData.name.trim()) newErrors.name = 'Name is required';
-    if (!formData.age || formData.age < 1 || formData.age > 120) newErrors.age = 'Valid age is required';
+    if (!formData.age || formData.age < 1 || formData.age > 120) newErrors.age = 'Valid age (1-120) is required';
     if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
-    if (formData.phone.trim().replace(/\D/g, '').length < 10) newErrors.phone = 'Phone number must be at least 10 digits';
+    if (formData.phone.trim().replace(/\D/g, '').length < 10) newErrors.phone = 'Phone must be at least 10 digits';
     if (!formData.department) newErrors.department = 'Department is required';
+    
+    // Validate email format if provided
+    if (formData.email && formData.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        newErrors.email = 'Please enter a valid email address';
+      }
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;

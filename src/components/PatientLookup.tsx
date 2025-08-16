@@ -32,6 +32,11 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
     setMedicalHistory([]);
     
     try {
+      if (!supabase || typeof supabase.from !== 'function') {
+        setError('Database not configured. Please check your environment settings.');
+        return;
+      }
+      
       // Search by UID, phone, or name
       let query = supabase
         .from('patients')
@@ -49,12 +54,12 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
 
       if (patientError) {
         console.error('Patient search error:', patientError);
-        setError('Patient not found. Please check the search criteria.');
+        setError('Error searching patient. Please try again.');
         return;
       }
 
       if (!patientData || patientData.length === 0) {
-          setError('Patient not found. Please check the search criteria.');
+        setError('Patient not found. Please check the search criteria.');
         return;
       }
 
@@ -72,7 +77,11 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
         .eq('patient_id', patient.id)
         .order('created_at', { ascending: false });
 
-      if (visitsError) throw visitsError;
+      if (visitsError) {
+        console.error('Visits fetch error:', visitsError);
+        setError('Error loading visit history.');
+        return;
+      }
       setVisits(visitsData || []);
 
       // Fetch medical history
@@ -86,12 +95,16 @@ export const PatientLookup: React.FC<PatientLookupProps> = ({ isOpen, onClose })
         .eq('patient_uid', patient.uid)
         .order('created_at', { ascending: false });
 
-      if (historyError) throw historyError;
+      if (historyError) {
+        console.error('Medical history fetch error:', historyError);
+        setError('Error loading medical history.');
+        return;
+      }
       setMedicalHistory(historyData || []);
 
     } catch (error) {
       console.error('Error searching patient:', error);
-      setError('Error searching patient. Please try again.');
+      setError('Unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }

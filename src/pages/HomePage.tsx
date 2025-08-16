@@ -69,11 +69,7 @@ export const HomePage: React.FC = () => {
         .select('*')
         .eq('is_active', true);
 
-      if (departments === null) {
-        throw new Error('Failed to fetch departments from database');
-      }
-
-      if (departments.length === 0) {
+      if (!departments || departments.length === 0) {
         console.warn('No departments found, using default message');
         setDepartmentStats([]);
         return;
@@ -89,7 +85,7 @@ export const HomePage: React.FC = () => {
         .select('specialization')
         .eq('status', 'active');
 
-      const stats: DepartmentStats[] = (departments || []).map(dept => {
+      const stats: DepartmentStats[] = departments.map(dept => {
         const deptVisits = visits?.filter(v => v.department === dept.name) || [];
         const waitingVisits = deptVisits.filter(v => ['waiting', 'checked_in'].includes(v.status));
         const completedVisits = deptVisits.filter(v => v.status === 'completed');
@@ -127,7 +123,7 @@ export const HomePage: React.FC = () => {
       if (!isSupabaseConfigured) {
         setError('Database not configured. Please set up your Supabase credentials in the .env file.');
       } else {
-        setError('Unable to load department information. Please check your database connection and try refreshing the page.');
+        setError('Unable to load department information. Please check your database connection.');
       }
       
       setDepartmentStats([]);

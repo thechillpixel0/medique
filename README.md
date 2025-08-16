@@ -52,12 +52,66 @@ A complete, production-ready clinic token and queue management system built with
 
 ## Environment Setup
 
-Create a `.env` file with your Supabase credentials:
+### For Local Development
+
+1. Create a `.env` file in the project root with your Supabase credentials:
 
 ```env
 VITE_SUPABASE_URL=your-supabase-url
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
+
+### For Vercel Deployment
+
+1. **In your Vercel Dashboard:**
+   - Go to your project settings
+   - Navigate to "Environment Variables"
+   - Add the following variables:
+
+   ```
+   VITE_SUPABASE_URL = https://your-project-id.supabase.co
+   VITE_SUPABASE_ANON_KEY = your-anon-key-here
+   ```
+
+2. **Get your Supabase credentials:**
+   - Go to [Supabase Dashboard](https://supabase.com/dashboard)
+   - Select your project
+   - Go to Settings → API
+   - Copy the "Project URL" and "anon public" key
+   - Paste them in Vercel environment variables
+
+3. **Deploy:**
+   - Push your code to GitHub
+   - Connect your GitHub repo to Vercel
+   - Vercel will automatically deploy with the environment variables
+
+### Environment Variables Required:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `VITE_SUPABASE_URL` | Your Supabase project URL | `https://abc123.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase anonymous key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+
+### Vercel Deployment Steps:
+
+1. **Push to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Deploy to Vercel"
+   git push origin main
+   ```
+
+2. **Deploy on Vercel:**
+   - Go to [vercel.com](https://vercel.com)
+   - Click "New Project"
+   - Import your GitHub repository
+   - Add environment variables in project settings
+   - Deploy!
+
+3. **Configure Supabase:**
+   - In your Supabase project, go to Authentication → URL Configuration
+   - Add your Vercel domain to "Site URL" and "Redirect URLs"
+   - Example: `https://your-app.vercel.app`
 
 ## Database Schema
 

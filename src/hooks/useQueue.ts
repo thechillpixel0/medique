@@ -12,6 +12,12 @@ export const useQueue = (department?: string) => {
 
   const fetchQueue = async () => {
     try {
+      if (!supabase || typeof supabase.from !== 'function') {
+        console.warn('Supabase client not properly configured');
+        setLoading(false);
+        return;
+      }
+      
       const today = new Date().toISOString().split('T')[0];
       
       let query = supabase
@@ -32,7 +38,7 @@ export const useQueue = (department?: string) => {
 
       if (error) throw error;
 
-      const visits = data as Visit[];
+      const visits = (data || []) as Visit[];
       setVisits(visits);
 
       // Calculate queue status
@@ -57,6 +63,12 @@ export const useQueue = (department?: string) => {
 
     } catch (error) {
       console.error('Error fetching queue:', error);
+      // Set empty state on error
+      setVisits([]);
+      setQueueStatus({
+        now_serving: 0,
+        total_waiting: 0,
+      });
     } finally {
       setLoading(false);
     }
@@ -65,24 +77,30 @@ export const useQueue = (department?: string) => {
   useEffect(() => {
     fetchQueue();
 
-    // Subscribe to real-time updates
-    const subscription = supabase
-      .channel('visits-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'visits',
-        },
-        () => {
-          fetchQueue();
-        }
-      )
-      .subscribe();
+    // Subscribe to real-time updates only if Supabase is configured
+    let subscription: any = null;
+    
+    if (supabase && typeof supabase.channel === 'function') {
+      subscription = supabase
+        .channel('visits-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'visits',
+          },
+          () => {
+            fetchQueue();
+          }
+        )
+        .subscribe();
+    }
 
     return () => {
-      subscription.unsubscribe();
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
     };
   }, [department]);
 

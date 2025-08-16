@@ -4,10 +4,14 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Check if environment variables are properly set
-const hasValidConfig = supabaseUrl && supabaseAnonKey && 
+const hasValidConfig = Boolean(
+  supabaseUrl && 
+  supabaseAnonKey && 
   supabaseUrl !== 'your-supabase-project-url' && 
   supabaseAnonKey !== 'your-supabase-anon-key' &&
-  supabaseUrl.includes('supabase.co');
+  supabaseUrl.includes('supabase.co') &&
+  supabaseUrl.startsWith('https://')
+);
 
 if (!hasValidConfig) {
   console.error('❌ Supabase configuration error:');
@@ -18,8 +22,8 @@ if (!hasValidConfig) {
 }
 
 // Use environment variables or throw error if invalid
-const finalSupabaseUrl = hasValidConfig ? supabaseUrl : 'https://demo.supabase.co';
-const finalSupabaseAnonKey = hasValidConfig ? supabaseAnonKey : 'demo-key';
+const finalSupabaseUrl = hasValidConfig ? supabaseUrl! : 'https://demo.supabase.co';
+const finalSupabaseAnonKey = hasValidConfig ? supabaseAnonKey! : 'demo-key';
 
 export const supabase = hasValidConfig ? createClient(finalSupabaseUrl, finalSupabaseAnonKey, {
   realtime: {
@@ -34,13 +38,29 @@ export const supabase = hasValidConfig ? createClient(finalSupabaseUrl, finalSup
 }) : {
   // Mock client for invalid configuration
   from: () => ({
-    select: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    insert: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    update: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-    delete: () => ({ data: null, error: { message: 'Supabase not configured' } }),
+    select: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    insert: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    update: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    delete: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    eq: () => ({
+      select: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+      single: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+      limit: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    }),
+    order: () => ({
+      select: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    }),
   }),
-  auth: { getSession: () => Promise.resolve({ data: { session: null }, error: null }) },
-  channel: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
+  auth: { 
+    getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+    signInWithPassword: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+    signOut: () => Promise.resolve({ error: null }),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+  },
+  channel: () => ({ 
+    on: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
+    subscribe: () => ({ unsubscribe: () => {} }),
+  }),
 } as any;
 
 export const isSupabaseConfigured = hasValidConfig;

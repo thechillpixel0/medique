@@ -8,6 +8,12 @@ export const useAnalytics = () => {
 
   const fetchAnalytics = async () => {
     try {
+      if (!supabase || typeof supabase.from !== 'function') {
+        console.warn('Supabase client not properly configured');
+        setLoading(false);
+        return;
+      }
+      
       const today = new Date().toISOString().split('T')[0];
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -40,11 +46,11 @@ export const useAnalytics = () => {
 
       // Calculate today's analytics
       const completedToday = todayVisits?.filter(v => v.status === 'completed').length || 0;
-      const revenueToday = todayVisits?.reduce((sum, visit) => {
-        const transactions = visit.payment_transactions || [];
+      const revenueToday = (todayVisits || []).reduce((sum, visit) => {
+        const transactions = (visit as any).payment_transactions || [];
         return sum + transactions.reduce((tSum: number, t: any) => 
-          t.status === 'completed' ? tSum + parseFloat(t.amount) : tSum, 0);
-      }, 0) || 0;
+          t.status === 'completed' ? tSum + (parseFloat(t.amount) || 0) : tSum, 0);
+      }, 0);
 
       // Calculate weekly trends
       const visitsTrend = Array.from({ length: 7 }, (_, i) => {
@@ -56,24 +62,24 @@ export const useAnalytics = () => {
         const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const dayVisits = weeklyVisits?.filter(v => v.visit_date === date) || [];
         return dayVisits.reduce((sum, visit) => {
-          const transactions = visit.payment_transactions || [];
+          const transactions = (visit as any).payment_transactions || [];
           return sum + transactions.reduce((tSum: number, t: any) => 
-            t.status === 'completed' ? tSum + parseFloat(t.amount) : tSum, 0);
+            t.status === 'completed' ? tSum + (parseFloat(t.amount) || 0) : tSum, 0);
         }, 0);
       }).reverse();
 
       // Department distribution
       const departmentDistribution: { [key: string]: number } = {};
-      weeklyVisits?.forEach(visit => {
+      (weeklyVisits || []).forEach(visit => {
         departmentDistribution[visit.department] = (departmentDistribution[visit.department] || 0) + 1;
       });
 
       // Monthly stats
-      const monthlyRevenue = monthlyVisits?.reduce((sum, visit) => {
-        const transactions = visit.payment_transactions || [];
+      const monthlyRevenue = (monthlyVisits || []).reduce((sum, visit) => {
+        const transactions = (visit as any).payment_transactions || [];
         return sum + transactions.reduce((tSum: number, t: any) => 
-          t.status === 'completed' ? tSum + parseFloat(t.amount) : tSum, 0);
-      }, 0) || 0;
+          t.status === 'completed' ? tSum + (parseFloat(t.amount) || 0) : tSum, 0);
+      }, 0);
 
       const topDepartments = Object.entries(departmentDistribution)
         .map(([department, count]) => ({ department, count }))
@@ -102,6 +108,12 @@ export const useAnalytics = () => {
 
     } catch (error) {
       console.error('Error fetching analytics:', error);
+      // Set default analytics on error
+      setAnalytics({
+        today: { total_visits: 0, completed_visits: 0, revenue: 0, average_wait_time: 15 },
+        weekly: { visits_trend: [0,0,0,0,0,0,0], revenue_trend: [0,0,0,0,0,0,0], department_distribution: {} },
+        monthly: { total_visits: 0, total_revenue: 0, top_departments: [], patient_satisfaction: 4.5 },
+      });
     } finally {
       setLoading(false);
     }

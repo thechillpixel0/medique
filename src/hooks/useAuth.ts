@@ -29,6 +29,10 @@ export const useAuth = () => {
 
   const signIn = async (email: string, password: string) => {
     try {
+      if (!email || !password) {
+        return { data: null, error: { message: 'Email and password are required' } };
+      }
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -43,6 +47,10 @@ export const useAuth = () => {
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
+      if (!error) {
+        setSession(null);
+        setUser(null);
+      }
       return { error };
     } catch (error) {
       console.error('Sign out error:', error);

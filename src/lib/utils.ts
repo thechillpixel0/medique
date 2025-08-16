@@ -6,7 +6,9 @@ export const cn = (...classes: (string | undefined | null | false)[]): string =>
 
 export const formatDate = (date: string | Date): string => {
   try {
+    if (!date) return 'Invalid date';
     const d = typeof date === 'string' ? parseISO(date) : date;
+    if (isNaN(d.getTime())) return 'Invalid date';
     return format(d, 'MMM dd, yyyy');
   } catch (error) {
     console.error('Error formatting date:', error);
@@ -16,7 +18,9 @@ export const formatDate = (date: string | Date): string => {
 
 export const formatTime = (date: string | Date): string => {
   try {
+    if (!date) return 'Invalid time';
     const d = typeof date === 'string' ? parseISO(date) : date;
+    if (isNaN(d.getTime())) return 'Invalid time';
     return format(d, 'HH:mm');
   } catch (error) {
     console.error('Error formatting time:', error);
@@ -26,7 +30,9 @@ export const formatTime = (date: string | Date): string => {
 
 export const formatRelativeTime = (date: string | Date): string => {
   try {
+    if (!date) return 'Invalid time';
     const d = typeof date === 'string' ? parseISO(date) : date;
+    if (isNaN(d.getTime())) return 'Invalid time';
     return formatDistanceToNow(d, { addSuffix: true });
   } catch (error) {
     console.error('Error formatting relative time:', error);
@@ -36,7 +42,9 @@ export const formatRelativeTime = (date: string | Date): string => {
 
 export const isToday = (date: string | Date): boolean => {
   try {
+    if (!date) return false;
     const d = typeof date === 'string' ? parseISO(date) : date;
+    if (isNaN(d.getTime())) return false;
     return format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
   } catch (error) {
     console.error('Error checking if date is today:', error);

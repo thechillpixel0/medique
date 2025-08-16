@@ -9,6 +9,12 @@ export const useRealTimeUpdates = (onUpdate?: () => void) => {
   }, [onUpdate]);
 
   useEffect(() => {
+    // Only subscribe if Supabase is properly configured
+    if (!supabase || typeof supabase.channel !== 'function') {
+      console.warn('Supabase not configured, skipping real-time updates');
+      return;
+    }
+    
     // Subscribe to visits changes
     const visitsSubscription = supabase
       .channel('visits-realtime')
@@ -66,10 +72,14 @@ export const useRealTimeUpdates = (onUpdate?: () => void) => {
       .subscribe();
 
     return () => {
-      visitsSubscription.unsubscribe();
-      patientsSubscription.unsubscribe();
-      paymentsSubscription.unsubscribe();
-      medicalHistorySubscription.unsubscribe();
+      try {
+        visitsSubscription?.unsubscribe();
+        patientsSubscription?.unsubscribe();
+        paymentsSubscription?.unsubscribe();
+        medicalHistorySubscription?.unsubscribe();
+      } catch (error) {
+        console.warn('Error unsubscribing from real-time updates:', error);
+      }
     };
   }, [handleUpdate]);
 };
